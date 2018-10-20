@@ -394,7 +394,6 @@ def knn_optimize(x, args):
 
 # Main Task starts here
 if __name__ == "__main__":
-    "Hello there"
     data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
     #pso = PSO(sphere, [10, 1], [-10, -1], fitness_minimize=True, cost_function_args=(),
      #         verbose=True)

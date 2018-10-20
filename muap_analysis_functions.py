@@ -16,7 +16,7 @@ debug_mode = False
 def debug_output(text):
     if debug_mode:
         print(text)
-        "Hello"
+
         
 def calculate_amplitude_difference(muaps, min_peak_thresh=-1):
     """

@@ -70,7 +70,7 @@ def calculate_ae(signal, data_run_coeff=2, filtering_level=3):
         return (N - m + 1.0) ** (-1) * sum(np.log(C))
 
     N = len(U)
-    "Hello"
+
 
     return abs(_phi(m + 1) - _phi(m))
 def calculate_aac(signal):
