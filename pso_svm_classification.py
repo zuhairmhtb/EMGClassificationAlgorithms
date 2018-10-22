@@ -1,25 +1,14 @@
-import os, random, pywt, sys, pdb
+import os, random, pywt, sys, pdb, datetime
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter, spectrogram
-from sklearn.svm import SVC
+from sklearn.svm import SVC, SVR
+from sklearn import preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-
-
-
-class PSOSVM:
-    def __init__(self):
-        ...
-    def fit(self, X, y, test_size=0.2):
-        ...
-    def score(self, X, y):
-        ...
-    def predict(self, X):
-        ...
-    def predict_proba(self, X):
-        ...
+from prettytable import PrettyTable, from_csv, from_html_one
+from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
 # Load data from dataset
 def get_dataset(data_base_dir, shuffle=True):
     data_type = {}
@@ -70,19 +59,25 @@ def read_sampling_rate(path):
     return sampling_rate
 
 # Calculate Discrete Wavelet Transform
-def calculate_dwt(data, method='haar', thresholding='soft', level=1):
+def calculate_dwt(data, method='haar', thresholding='soft', level=1, threshold=True):
 
     if  level<=1:
         (ca, cd) = pywt.dwt(data, method)
-        cat = pywt.threshold(ca, np.std(ca) / 2, thresholding)
-        cdt = pywt.threshold(cd, np.std(cd) / 2, thresholding)
-        return cat, cdt
+        if threshold:
+            cat = pywt.threshold(ca, np.std(ca) / 2, thresholding)
+            cdt = pywt.threshold(cd, np.std(cd) / 2, thresholding)
+            return cat, cdt
+        else:
+            return ca, cd
     else:
         decs = pywt.wavedec(data, method, level=level)
-        result=[]
-        for d in decs:
-            result.append(pywt.threshold(d, np.std(d) / 2, thresholding))
-        return result
+        if threshold:
+            result=[]
+            for d in decs:
+                result.append(pywt.threshold(d, np.std(d) / 2, thresholding))
+            return result
+        else:
+            return decs
 
 def butter_bandpass(cutoff_freqs, fs, btype, order=5):
     nyq = 0.5 * fs
@@ -136,231 +131,6 @@ def crop_data(data, fs, crop_duration):
         return data[crop_start:len(data)-crop_end]
     return data
 
-# -----Test PSO-SVM
-
-class Particle:
-    """
-    Particle objects for the PSO swarm
-    """
-    def __init__(self):
-        self.position = []  # Position of PSO search space particle
-        self.velocity = []  # Velocity of PSO search space particle
-        self.cost = []  # Cost of PSO search space particle
-        self.best = {"position": [], "cost": []}  # Best values obtained so far for PSO search space particle
-class PSO:
-    def __init__(self, cost_function, upper_bounds, lower_bounds, max_iteration=100, swarm_size = 50, inertia_coefficient=1,
-                 inertia_damp=0.99, personal_coefficient=2, global_coefficient=2, verbose=True,
-                 cost_function_args=(), fitness_minimize=True, kappa=1, phi1=2.05, phi2=2.05, constriction_coefficient=True):
-        # Problem definition
-
-        """
-        Constriction Coefficient by Clerc and Kennedy:
-        Chi(x) = 2*kappa(k)/(|2 - phi(o) - sqrt( sqr(phi) - 4*phi) |)
-        where phi(o) = phi-1(o1) + phi-2(o2)
-        Generally,
-        k = 1
-        o1 = 2.05
-        o2 = 2.05
-        According to Constriction Coefficient:
-        inertia coefficient(w) = chi(x)
-        personal coefficient(c1) = chi(x) * phi-1(o1)
-        global coefficient = chi(x) * phi-2(o2)
-        """
-        self.kappa = kappa
-        self.phi1 = phi1
-        self.phi2 = phi2
-        self.phi = self.phi1 + self.phi2
-        self.chi = 2*self.kappa/(abs(2 - self.phi - np.sqrt(self.phi**2 - (4*self.phi))))
-        self.constriction_coefficient = constriction_coefficient
-
-        self.costFunction = cost_function
-        self.costFunctionArgs = cost_function_args  # Arguments to pass to cost function
-        self.nVar = len(upper_bounds)  # Number of unknown/decision variables
-        self.varSize = np.empty((self.nVar))  # Matrix size of decision variables
-        self.varMin = lower_bounds  # Lower bound of decision variables
-        self.varMax = upper_bounds  # Upper bound of decision variables
-        self.maxVelocity = list((np.asarray(self.varMax) - np.asarray(self.varMin)) * 0.2)
-        self.minVelocity = list(np.asarray(self.maxVelocity)*-1)
-        self.fitness_minimize = fitness_minimize  # Maximize/Minimize cost function
-
-        # Parameters of PSO
-        self.maxIt = max_iteration  # Maximum number of iterations
-        self.nPop = swarm_size  # Number of population/swarm in the search space
-        self.w_damp = inertia_damp  # Damping ratio of Inertia Coefficient
-
-        if constriction_coefficient:
-            self.w = self.kappa  # Inertia Coefficient
-            self.c1 = self.chi * self.phi1  # Personal acceleration coefficient
-            self.c2 = self.chi * self.phi2  # Global acceleration coefficient
-        else:
-            self.w = inertia_coefficient  # Inertia Coefficient
-            self.c1 = personal_coefficient  # Personal acceleration coefficient
-            self.c2 = global_coefficient  # Global acceleration coefficient
-        self.verbose = verbose
-        self.globalBest = {} # Global best cost and position of the swarm
-        self.bestCosts = [] # Best cost at every iteration
-        self.bestPositions = [] # Best position at every iteration
-        self.particles = [] # particles of the swarm
-
-
-    def initialize(self):
-        if self.fitness_minimize:
-            self.globalBest = {"cost": float(sys.maxsize), "position": []}
-        else:
-            self.globalBest = {"cost": float(-sys.maxsize), "position": []}
-        self.bestCosts = []
-        self.bestPositions = []
-        self.particles = []
-
-        for i in range(self.nPop):
-            particle = Particle()
-            # Generate random position within the given range for the particles
-            particle.position = []
-            for j in range(len(self.varMin)):
-                if (self.varMin[j] >= -1 and self.varMax[j] <= 1) or (type(self.varMin[j]) == float or type(self.varMax[j]) == float):
-                    particle.position.append(random.uniform(self.varMin[j], self.varMax[j]))
-                else:
-                    particle.position.append(random.randint(self.varMin[j], self.varMax[j]))
-            particle.position = np.asarray(particle.position)
-
-
-            # Generate velocities for the particle
-            particle.velocity = np.zeros((len(self.varMin)))
-
-            # Evaluation of the particle
-            particle.cost = self.costFunction(particle.position, self.costFunctionArgs)
-
-            # Set current best position for the particle
-            particle.best["position"] = particle.position
-            # Set current best minimum cost for the particle
-            particle.best["cost"] = particle.cost
-
-            # Update global best
-            if self.fitness_minimize:
-                if particle.best["cost"] < self.globalBest["cost"]:
-                    self.globalBest["position"] = np.copy(particle.best["position"])
-                    self.globalBest["cost"] = particle.best["cost"]
-            else:
-                if particle.best["cost"] > self.globalBest["cost"]:
-                    self.globalBest["position"] = np.copy(particle.best["position"])
-                    self.globalBest["cost"] = particle.best["cost"]
-
-            self.particles.append(particle)
-            print("--------------------Particle Number " + str(i+1)  +"--------------------")
-            print("Current Position: " + str(particle.position))
-            print("Current velocity: " + str(particle.velocity))
-            print("Current Best : " + str(particle.best) + "\n")
-    def run(self):
-        self.initialize()
-        # Main Loop of PSO
-        if self.verbose:
-            plt.show(block=False)
-            plt.figure(100)
-            plt.grid()
-        for it in range(self.maxIt):
-            # For each iteration of PSO
-            for i in range(self.nPop):
-                # For each particle in the current iteration
-
-                # Update velocity of the particle
-                v = self.w * self.particles[i].velocity  # Velocity Update
-
-                p = self.c1 * np.random.rand(len(self.varMin)) * (self.particles[i].best["position"] - self.particles[i].position) # Personal Best update
-                g = self.c2 * np.random.rand(len(self.varMin)) * (self.globalBest["position"] - self.particles[i].position)
-                self.particles[i].velocity = v + p + g
-
-                # Apply Velocity upper and lower bounds
-                for j in range(len(self.particles[i].velocity)):
-                    self.particles[i].velocity[j] = max(self.particles[i].velocity[j], self.minVelocity[j])
-                    self.particles[i].velocity[j] = min(self.particles[i].velocity[j], self.maxVelocity[j])
-
-                # Update position of the particle
-                self.particles[i].position = self.particles[i].position + self.particles[i].velocity
-                # Apply lower and upper bound limit
-                for j in range(len(self.particles[i].velocity)):
-                    self.particles[i].position[j] = max(self.particles[i].position[j], self.varMin[j])
-                    self.particles[i].position[j] = min(self.particles[i].position[j], self.varMax[j])
-
-
-                # Update cost of the particle for new position
-                self.particles[i].cost = self.costFunction(self.particles[i].position, self.costFunctionArgs)
-
-                if self.fitness_minimize:
-                    if self.particles[i].cost < self.particles[i].best["cost"]:
-                        # If the current cost calculated is less than the current best cost of the particle
-                        self.particles[i].best["position"] = self.particles[i].position  # Update current best position
-                        self.particles[i].best["cost"] = self.particles[i].cost  # Update current best cost
-
-                        # Update global best
-                        if self.particles[i].best["cost"] < self.globalBest["cost"]:
-                            self.globalBest["position"] = np.copy(self.particles[i].best["position"])
-                            self.globalBest["cost"] = self.particles[i].best["cost"]
-                else:
-                    if self.particles[i].cost > self.particles[i].best["cost"]:
-                        # If the current cost calculated is less than the current best cost of the particle
-                        self.particles[i].best["position"] = self.particles[i].position  # Update current best position
-                        self.particles[i].best["cost"] = self.particles[i].cost  # Update current best cost
-
-                        # Update global best
-                        if self.particles[i].best["cost"] > self.globalBest["cost"]:
-                            self.globalBest["position"] = np.copy(self.particles[i].best["position"])
-                            self.globalBest["cost"] = self.particles[i].best["cost"]
-
-            self.bestCosts.append(self.globalBest["cost"])
-            self.bestPositions.append(self.globalBest["position"])
-            print("Iteration No. " + str(it + 1) + ": Best Cost = " + str(self.globalBest["cost"]) + ", Best Position: " + str(self.globalBest["position"]))
-            self.w = self.w * self.w_damp
-
-            if self.verbose:
-                x_axis = []
-                y_axis = []
-                for i in range(self.nPop):
-                    x_axis.append(self.particles[i].position[0])
-                    if len(self.particles[i].position) > 1:
-                        y_axis.append(self.particles[i].position[1])
-               # print("X axis: " + str(len(x_axis)))
-                #if len(self.particles[i].position) > 1:
-                 #   print("Y axis: " + str(y_axis))
-                plt.clf()
-                if len(self.particles[i].position) > 1:
-                    plt.plot(x_axis, y_axis, 'x')
-                    plt.xlim((self.varMin[0], self.varMax[0]))
-                    plt.ylim((self.varMin[1], self.varMax[1]))
-                else:
-                    plt.plot(x_axis, 'x')
-                    plt.ylim((self.varMin[0], self.varMax[0]))
-                plt.pause(0.1)
-
-        # Results
-        if self.verbose:
-
-            plt.figure(101)
-            plt.clf()
-            plt.subplot(2, 1, 1)
-            plt.title('Change of Best Cost over iterations')
-            plt.plot(self.bestCosts)
-            plt.grid()
-            plt.xlabel("Iteration")
-            plt.ylabel("Best Cost")
-            plt.subplot(2, 1, 2)
-            plt.title('Change of Position over iterations')
-            for k in range(len(self.bestPositions[0])):
-                plt.plot(np.asarray(self.bestPositions)[:, k], label='Variable ' + str(k+1))
-            plt.legend()
-            plt.show()
-
-        return self.particles, self.globalBest, self.bestCosts
-def sphere(x, args):
-    """
-    This is a sample cost function which needs to be minimized. The function returns absolute squared summation
-    of the input unknown variables as output and PSO works in order to provide the most optimized input variables(x)
-    so that the output(cost) is minimum. In this case the minimum output possible is 0.
-
-    :param x: 1D array containing
-    :return: Output Cost (float)
-    """
-
-    return np.sum(np.square(x))
 
 def rfa_optimize(x, args):
     classifier = RandomForestClassifier(n_estimators=int(x[0]), max_features=x[1])
@@ -373,14 +143,15 @@ def rfa_optimize(x, args):
         return classifier.score(args[2], args[3])
 
 def svc_optimize(x, args):
-    classifier = SVC(C=x[0], gamma=x[1], random_state=42)
-    if len(args) == 2:
-        X_train, X_test, y_train, y_test = train_test_split(args[0], args[1], test_size=0.2, shuffle=True)
+
+    classifier = SVC(C=x[0], gamma=x[1], kernel=args[2][int(x[2])])
+    if len(args) == 3:
+        X_train, X_test, y_train, y_test = train_test_split(args[0], args[1], test_size=0.2, shuffle=False)
         classifier.fit(X_train, y_train)
         return classifier.score(X_test, y_test)
-    elif len(args) == 4:
+    elif len(args) == 5:
         classifier.fit(args[0], args[1])
-        return classifier.score(args[2], args[3])
+        return classifier.score(args[3], args[4])
 
 def knn_optimize(x, args):
     classifier = KNeighborsClassifier(n_neighbors=int(x[0]))
@@ -394,7 +165,21 @@ def knn_optimize(x, args):
 
 # Main Task starts here
 if __name__ == "__main__":
-    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+    simulated = False
+    if not simulated:
+        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+        signal_type = 'Real'
+    else:
+        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
+        signal_type = 'Simulated'
+    result_base_dir = "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\"
+    muscle_location = "Biceps Brachii"
+    scale = False
+
+    if scale:
+        signal_type += "(Scaled)"
+
+    save_result = False
     #pso = PSO(sphere, [10, 1], [-10, -1], fitness_minimize=True, cost_function_args=(),
      #         verbose=True)
     #pso.run()
@@ -441,7 +226,7 @@ if __name__ == "__main__":
         # Calculate DWT
         dwt_wavelet = 'db4'
         dwt_level = 5
-        wavelets = calculate_dwt(filtered, method=dwt_wavelet, level=dwt_level)
+        wavelets = calculate_dwt(filtered, method=dwt_wavelet, level=dwt_level, threshold=False)
 
         #print('Wavelets found: ' + str(len(wavelets)))
 
@@ -520,18 +305,37 @@ if __name__ == "__main__":
         print('Left: ' + str(len(urls) - i))
 
     # Perform Classification
-    measure_performance = False
+    measure_performance = True
     if not measure_performance:
+        result_path = result_base_dir + "psosvm_accuracy_table.html"
+        if os.path.exists(result_path):
+            with open(result_path, 'r') as fp:
+                table = from_html_one(fp.read())
+        else:
+            table = PrettyTable()
+            table.field_names = ["Index No.", "Signal Type", "Muscle Location", "Classifier", "Subject type",
+                                 "Train data size", "Test data size", "Subject's test data size", "Accuracy(%)", "Classification Date"]
+
         features_data_np = np.asarray(features_data)
+        if scale:
+            features_data_np = preprocessing.scale(features_data_np)
 
         print('Feature data: ' + str(features_data_np.shape))
         test_data_size = 1/10
         X_train, X_test, y_train, y_test = train_test_split(features_data_np, labels, test_size=test_data_size,
                                                             random_state=42)
 
-        pso = PSO(svc_optimize, [1, 1], [0.1, 0.1], fitness_minimize=False, cost_function_args=(X_train, y_train),
-                  verbose=False)
+        svc_kernels = ['poly', 'rbf', 'sigmoid', 'linear']
+
+        pso = PSO(svc_optimize, [1, 1, len(svc_kernels)], [0.1, 0.1, 0], fitness_minimize=False, cost_function_args=(X_train, y_train, svc_kernels),
+                  verbose=True)
         svc_particles, svc_global_best, svc_best_costs = pso.run()
+
+        pso = PSO(svc_optimize, [1, 1, len(svc_kernels)], [0.1, 0.1, 0], fitness_minimize=False,
+                  cost_function_args=(X_train, y_train, svc_kernels),
+                  verbose=False)
+        svc2_particles, svc2_global_best, svc2_best_costs = pso.run()
+
         pso = PSO(knn_optimize, [20], [2], fitness_minimize=False, cost_function_args=(X_train, y_train),
                   verbose=False)
         knn_particles, knn_global_best, knn_best_costs = pso.run()
@@ -540,10 +344,14 @@ if __name__ == "__main__":
         print("KNN Global best: " + str(knn_global_best))
         print("----------------------\n------------------\n")
         classifiers = {
-            "Support Vector Machine": SVC(probability=True),
+            "Support Vector Machine(Kernel=Polynomial)": SVC(C=1, kernel='poly', probability=True),
+            "Support Vector Machine(Kernel=Radial Basis Function)": SVC(C=1, kernel='rbf', probability=True),
             "K Nearest Neighbors": KNeighborsClassifier(n_neighbors=3),
             "Random Forest": RandomForestClassifier(n_estimators=10),
-            "PSO-SVM": SVC(C=svc_global_best["position"][0], gamma=svc_global_best["position"][0], probability=True),
+            "PSO-SVM(Kernel=Polynomial)": SVC(C=svc_global_best["position"][0], gamma=svc_global_best["position"][1],
+                           kernel=svc_kernels[int(svc_global_best["position"][2])], probability=True),
+            "PSO-SVM(Kernel=RBF)": SVC(C=svc2_global_best["position"][0], gamma=svc2_global_best["position"][1],
+                           kernel=svc_kernels[int(svc_global_best["position"][2])], probability=True),
             "PSO-KNN": KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0]))
         }
         accuracies = []
@@ -551,6 +359,8 @@ if __name__ == "__main__":
         probs = []
         for k in classifiers:
             print('------------Classifying with ' + k + "---------------\n")
+
+
             classifiers[k].fit(X_train, y_train)
             accuracy = classifiers[k].score(X_test, y_test)
             predictions = list(classifiers[k].predict(X_test))
@@ -559,9 +369,60 @@ if __name__ == "__main__":
             probs.append(probabilites)
             accuracies.append(accuracy)
             print('Accuracy: ' + str(accuracy))
+            print('Target: ' + str(y_test))
+            print('Prediction: ' + str(predictions))
+
+            for j in range(len(label_map)):
+                correct = 0
+                total = 0
+                for i in range(len(y_test)):
+                    if y_test[i] == j:
+                        total += 1
+                        if predictions[i] == y_test[i]:
+                            correct += 1
+                if total > 0:
+                    acc = correct/total
+                else:
+                    acc = -1
+                if label_map[j].lower() == "als" or label_map[j].lower() == "neuropathy":
+                    l = "Neuropathy"
+                elif label_map[j].lower() == "other" or label_map[j].lower() == "normal":
+                    l = "Normal/Healthy"
+                elif label_map[j].lower() == "myopathy":
+                    l = "Myopathy"
+
+                if save_result:
+                    #table.field_names = ["Index No.", "Signal Type", "Muscle Location", "Classifier", "Subject type",
+                     #                    "Train data size", "Test data size", "Subject's test data size", "Accuracy(%)", "Classification Date"]
+                    current_index = len(table._rows) + 1
+                    now = datetime.datetime.now()
+                    print([current_index, signal_type, muscle_location, k.upper(), l,
+                           len(y_train), len(y_test), total, float("{0:.2f}".format(acc * 100)),
+                           now.strftime("%Y-%m-%d %H:%M")])
+                    table.add_row([current_index, signal_type, muscle_location, k.upper(), l,
+                           len(y_train), len(y_test), total, float("{0:.2f}".format(acc * 100)),
+                           now.strftime("%Y-%m-%d %H:%M")])
+
+        if save_result and len(table._rows) > 0:
+            with open(result_path, 'w') as fp:
+                fp.write(table.get_html_string())
+
     else:
         number_folds = 10
+        result_path = result_base_dir + "pso_svm_performance_table.html"
+        if os.path.exists(result_path):
+            with open(result_path, 'r') as fp:
+                table = from_html_one(fp.read())
+        else:
+            table = PrettyTable()
+            table.field_names = ["Index No.", "Signal Type", "Muscle Location", "Classifier", "Subject type",
+                                 "Train data size", "Test data size", "Specifity(%)",
+                                 "Sensitivity(%)", "Performance accuracy(%)", "Classification Date"]
+
         features_data_np = np.asarray(features_data[: len(features_data) - (len(features_data) % number_folds)])
+        if scale:
+            features_data_np = preprocessing.scale(features_data_np)
+
         inp_labels = list(labels[:len(features_data) - (len(features_data) % number_folds)])
         features_split = [ [] for _ in range(number_folds)]
         labels_split = [ [] for _ in range(number_folds)]
@@ -623,25 +484,43 @@ if __name__ == "__main__":
 
             #def __init__(self, cost_function, upper_bounds, lower_bounds, max_iteration=100, swarm_size = 50, inertia_coefficient=1,
                  #inertia_damp=0.99, personal_coefficient=2, global_coefficient=2, verbose=True, cost_function_args=(), fitness_minimize=True)
-            knn_pso = PSO(knn_optimize, [20], [2], fitness_minimize=False, cost_function_args=(X_train, y_train),
-                      verbose=False, inertia_damp=0.99, swarm_size=12)
-            knn_particles, knn_global_best, knn_best_costs = knn_pso.run()
+            #knn_pso = PSO(knn_optimize, [20], [2], fitness_minimize=False, cost_function_args=(X_train, y_train),
+             #         verbose=False, inertia_damp=0.99, swarm_size=12)
+            #knn_particles, knn_global_best, knn_best_costs = knn_pso.run()
 
-            rfa_bound_trees = [2, 20]
+            #rfa_bound_trees = [2, 20]
 
-            rfa_bound_max_features = [0.1, 1]
-            rfa_pso = PSO(rfa_optimize, [rfa_bound_trees[1], rfa_bound_max_features[1]], [rfa_bound_trees[0], rfa_bound_max_features[0]],
-                          fitness_minimize=False, cost_function_args=(X_train, y_train),
-                          verbose=False, inertia_damp=0.99, swarm_size=12)
+            #rfa_bound_max_features = [0.1, 1]
+            #rfa_pso = PSO(rfa_optimize, [rfa_bound_trees[1], rfa_bound_max_features[1]], [rfa_bound_trees[0], rfa_bound_max_features[0]],
+             #             fitness_minimize=False, cost_function_args=(X_train, y_train),
+              #            verbose=False, inertia_damp=0.99, swarm_size=12)
 
-            rfa_particles, rfa_global_best, rfa_best_costs = rfa_pso.run()
-            print("KNN Global best: " + str(knn_global_best))
+            #rfa_particles, rfa_global_best, rfa_best_costs = rfa_pso.run()
+
+            svc_kernels = ['poly', 'rbf', 'sigmoid', 'linear']
+
+            pso = PSO(svc_optimize, [1, 1, len(svc_kernels)-1], [0.1, 0.1, 0], fitness_minimize=False,
+                      cost_function_args=(X_train, y_train, svc_kernels),
+                      verbose=True, feature_label=["Penalty(C)", "Gamma(G)", "Kernel"], ndview=False)
+            svc_particles, svc_global_best, svc_best_costs = pso.run()
+
+            pso = PSO(svc_optimize, [1, 1, len(svc_kernels)-1], [0.1, 0.1, 0], fitness_minimize=False,
+                      cost_function_args=(X_train, y_train, svc_kernels),
+                      verbose=False)
+            svc2_particles, svc2_global_best, svc2_best_costs = pso.run()
+
+
+            #print("KNN Global best: " + str(knn_global_best))
             classifiers = {
                 "Support Vector Machine": SVC(probability=True),
                 "K Nearest Neighbors": KNeighborsClassifier(n_neighbors=3),
                 "Random Forest": RandomForestClassifier(n_estimators=10),
-                "PSO-KNN": KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0])),
-                "PSO-RForest": RandomForestClassifier(n_estimators=int(rfa_global_best["position"][0]), max_features=rfa_global_best["position"][1])
+                #"PSO-KNN": KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0])),
+                #"PSO-RForest": RandomForestClassifier(n_estimators=int(rfa_global_best["position"][0]), max_features=rfa_global_best["position"][1]),
+                "PSO-SVM(Kernel=Polynomial)": SVC(C=svc_global_best["position"][0], gamma=svc_global_best["position"][1],
+                           kernel=svc_kernels[int(svc_global_best["position"][0])], probability=True),
+                "PSO-SVM(Kernel=RBF)": SVC(C=svc2_global_best["position"][0], gamma=svc2_global_best["position"][1],
+                               kernel=svc_kernels[int(svc_global_best["position"][0])], probability=True),
             }
             accuracies = []
             preds = []
@@ -695,7 +574,8 @@ if __name__ == "__main__":
         sensitivity = [[0 for _ in range(len(label_map))] for _ in range(len(classifiers))]
         specifity = [[0 for _ in range(len(label_map))] for _ in range(len(classifiers))]
         performance_acc = [[0 for _ in range(len(label_map))] for _ in range(len(classifiers))]
-        for i in range(len(classifiers)):
+        i=0
+        for k in classifiers:
             for j in range(len(label_map)):
                 sensitivity[i][j] = (tp[i][j]/(tp[i][j] + fn[i][j])) * 100
                 specifity[i][j] = (tn[i][j]/(tn[i][j] + fp[i][j])) * 100
@@ -709,3 +589,26 @@ if __name__ == "__main__":
                 print("Accuracy: " + str(performance_acc[i][j]))
                 print("-------------------------------------------------------------------------")
 
+
+                if label_map[j].lower() == "als" or label_map[j].lower() == "neuropathy":
+                    l = "Neuropathy"
+                elif label_map[j].lower() == "other" or label_map[j].lower() == "normal":
+                    l = "Normal/Healthy"
+                elif label_map[j].lower() == "myopathy":
+                    l = "Myopathy"
+                if save_result:
+                    #table.field_names = ["Index No.", "Signal Type", "Muscle Location", "Classifier", "Subject type",
+                     #                    "Train data size", "Test data size", "Subject's test data size", "Accuracy(%)", "Classification Date"]
+                    current_index = len(table._rows) + 1
+                    now = datetime.datetime.now()
+                    print([current_index, signal_type, muscle_location, k.upper(), l,
+                           len(y_train), len(y_test), specifity[i][j], sensitivity[i][j], performance_acc[i][j],
+                           now.strftime("%Y-%m-%d %H:%M")])
+                    table.add_row([current_index, signal_type, muscle_location, k.upper(), l,
+                           len(y_train), len(y_test), specifity[i][j], sensitivity[i][j], performance_acc[i][j],
+                           now.strftime("%Y-%m-%d %H:%M")])
+
+            i += 1
+        if save_result and len(table._rows) > 0:
+            with open(result_path, 'w') as fp:
+                fp.write(table.get_html_string())
