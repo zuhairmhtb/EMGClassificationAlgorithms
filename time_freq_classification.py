@@ -141,16 +141,24 @@ def crop_data(data, fs, crop_duration):
         return data[crop_start:len(data)-crop_end]
     return data
 
-# Calculate Amplitude Peaks from Magnitude Spectrum/FFT Magnitude of a data
+# Calculate Peaks from Magnitude Spectrum/FFT Magnitude of a data
 def calculate_spectral_peak(data, thresh=None):
     fourier = np.fft.fft(data)
     fourier = abs(fourier[0:len(data) // 2])
+
     if thresh is None:
         peaks, props = find_peaks(fourier, height=np.mean(fourier))
-        return peaks
+        return fourier, peaks
     else:
         peaks, props = find_peaks(fourier, height=thresh)
-        return peaks
+        return fourier, peaks
+
+# Calculate Average Spectral Amplitude from FFT of a data
+def calculate_avg_spectral_amplitude(data, thresh=None):
+    fourier, peaks = calculate_spectral_peak(data, thresh)
+    return np.average(fourier[peaks])
+
+
 
 # Calculate mean frequency from a signal
 def calculate_mean_frequency(data, fs):
@@ -171,11 +179,14 @@ def calculate_zero_lag_autocorrelation(data):
     return autocorr_xdm[len(data) - 1]
 # Calculate Zero Crossing Rate
 def calculate_zero_crossing_rate(data):
-    sum = 0
+    signs = []
     for i in range(1, len(data)):
-        if data[i] * data[i - 1] < 0:
-            sum += 1
-    return sum / (len(data) - 1)
+        if data[i] >= 0:
+            signs.append(1)
+        else:
+            signs.append(-1)
+    vals = [np.abs(signs[i] - signs[i-1]) for i in range(1, len(signs))]
+    return (1/(2*len(data))) * np.sum(vals)
 
 def knn_optimize(x, args):
     classifier = KNeighborsClassifier(n_neighbors=int(x[0]))
@@ -198,13 +209,13 @@ if __name__ == "__main__":
         signal_type = 'Simulated'
     result_base_dir = "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\"
     muscle_location = "Biceps Brachii"
-    scale = True
+    scale = False
 
     if scale:
         signal_type += "(Scaled)"
 
-    save_result = False
-    number_folds = 10
+    save_result = True
+    #number_folds = 10
     result_path = result_base_dir + "fft_performance_table.html"
     if os.path.exists(result_path):
         with open(result_path, 'r') as fp:
@@ -260,11 +271,16 @@ if __name__ == "__main__":
 
     total_frames = 64
     total_samples_per_frame = 4096
+    original_data = []
+    for i in range(len(urls)):
+        original_data.append(np.load(os.path.join(urls[i], data_filename)))
+    if scale:
+        original_data = preprocessing.scale(original_data)
     for i in range(len(urls)):
         if verbose or True:
             print("Left loading data-Total: " + str(len(urls)-i))
         # Load data as numpy array
-        d = np.load(os.path.join(urls[i], data_filename))
+        d = original_data[i]
         fs = read_sampling_rate(os.path.join(urls[i], header_filename))
 
         # Adjust From both end: Crop data if the total number of sample is larger than expected sample and add zero otherwise
@@ -291,7 +307,7 @@ if __name__ == "__main__":
 
         # Apply Low Pass filter to specific frame
         pass_type = 'lowpass'
-        pass_band = [600]  # 600Hz
+        pass_band = [1500]  # 1500Hz
         filtered_data.append(butter_bandpass_filter(cropped_data[i], pass_band, pass_type, fs, order=2))
         filtered_segmented_data.append([butter_bandpass_filter(cropped_segmented_data[i][j], pass_band, pass_type, fs, order=2)
                               for j in range(len(cropped_segmented_data[i]))])
@@ -305,26 +321,33 @@ if __name__ == "__main__":
         segmented_spectral_peaks.append([calculate_spectral_peak(filtered_segmented_data[i][j])
                                          for j in range(len(filtered_segmented_data[i]))])
         if len(spectral_peaks[i]) > 0:
-            avg_amplitude = np.average(filtered_data[i][spectral_peaks[i]])
+
+            avg_amplitude = calculate_avg_spectral_amplitude(filtered_data[i])
         else:
             avg_amplitude = 0
         segmented_avg_amplitude = []
         for j in range(len(segmented_spectral_peaks[i])):
             if len(segmented_spectral_peaks[i][j]) > 0:
-                segmented_avg_amplitude.append(np.average(filtered_segmented_data[i][j][segmented_spectral_peaks[i][j]]))
+                segmented_avg_amplitude.append(calculate_avg_spectral_amplitude(filtered_segmented_data[i][j]))
             else:
                 segmented_avg_amplitude.append([])
         avg_spectral_amps.append(avg_amplitude)
         segmented_avg_spectral_amps.append(segmented_avg_amplitude)
+        print("Patient type: " + str(label_map[labels[i]]))
+        print("Avg Spectral Amplitude: " + str(np.average(segmented_avg_amplitude)))
         if verbose:
+            print("PATIENT TYPE: " + str(labels[i]))
             print("Average Spectral Amplitude: " + str(avg_spectral_amps))
             print("Segmented Spectral Amplitude(" + str(len(segmented_avg_spectral_amps[i])) + "): ")
 
         # Mean Frequency
-        mean_freqs.append(calculate_mean_frequency(filtered_data[i], fs))
-        segmented_mean_freqs.append([calculate_mean_frequency(filtered_segmented_data[i][j], fs)
-                                     for j in range(len(filtered_segmented_data[i]))])
 
+        mean_freqs.append(calculate_mean_frequency(filtered_data[i], fs))
+
+        smf = [calculate_mean_frequency(filtered_segmented_data[i][j], fs)
+                                     for j in range(len(filtered_segmented_data[i]))]
+        segmented_mean_freqs.append(smf)
+        print("Mean frequency: " + str(np.average(smf)))
         if verbose:
             print("Mean Frequency: " + str(mean_freqs))
             print(
@@ -333,8 +356,11 @@ if __name__ == "__main__":
         # Autocorrelation
 
         autocorrelations.append(calculate_autocorrelation(filtered_data[i]))
-        segmented_autocorrelations.append([calculate_autocorrelation(filtered_segmented_data[i][j])
-                                     for j in range(len(filtered_segmented_data[i]))])
+        sac = [calculate_autocorrelation(filtered_segmented_data[i][j])
+                                     for j in range(len(filtered_segmented_data[i]))]
+        segmented_autocorrelations.append(sac)
+
+
         if verbose:
             print("Autocorrelation: " + str(autocorrelations))
             print(
@@ -342,8 +368,10 @@ if __name__ == "__main__":
 
         # Autocorrelation - Zero lag
         zero_lags.append(calculate_zero_lag_autocorrelation(filtered_data[i]))
-        segmented_zero_lags.append([calculate_zero_lag_autocorrelation(filtered_segmented_data[i][j])
-                                     for j in range(len(filtered_segmented_data[i]))])
+        szl = [calculate_zero_lag_autocorrelation(filtered_segmented_data[i][j])
+                                     for j in range(len(filtered_segmented_data[i]))]
+        segmented_zero_lags.append(szl)
+        #print("Segmented zero lag: " + str(szl))
         if verbose:
             print("Zero Lag: " + str(zero_lags))
             print(
@@ -351,8 +379,10 @@ if __name__ == "__main__":
 
         # Zero Crossing rate
         zero_crossing_rates.append(calculate_zero_crossing_rate(filtered_data[i]))
-        segmented_zero_crossing_rates.append([calculate_zero_crossing_rate(filtered_segmented_data[i][j])
-                                     for j in range(len(filtered_segmented_data[i]))])
+        zcr = [calculate_zero_crossing_rate(filtered_segmented_data[i][j])
+                                     for j in range(len(filtered_segmented_data[i]))]
+        segmented_zero_crossing_rates.append(zcr)
+        print("Segmented zero crossing rate: " + str(zcr))
         if verbose:
             print("Zero crossing rate: " + str(zero_crossing_rates))
             print(
@@ -405,14 +435,14 @@ if __name__ == "__main__":
     classifiers = [KNeighborsClassifier(n_neighbors=1) for _ in range(len(classification_features))]
     classification_inputs = []
     for j in range(len(classification_features)):
-        if scale:
-            id = preprocessing.scale(np.asarray(classification_features[j]))
-        else:
-            id = np.asarray(classification_features[j])
+       # if scale:
+        #    id = preprocessing.scale(np.asarray(classification_features[j]))
+       # else:
+        #    id = np.asarray(classification_features[j])
 
-        X_train, X_test, y_train, y_test = train_test_split(id, labels, test_size=0.2, shuffle=True)
+        X_train, X_test, y_train, y_test = train_test_split(classification_features[j], labels, test_size=0.2, shuffle=True)
         pso = PSO(knn_optimize, [20], [2], fitness_minimize=False, cost_function_args=(X_train, y_train),
-                  verbose=True, ndview=False)
+                  verbose=False, ndview=False)
         knn_particles, knn_global_best, knn_best_costs = pso.run()
         classification_inputs.append((X_train, X_test, y_train, y_test))
         print("Best Neighbors for classification feature: " + classification_feature_labels[j] + ": " + str(knn_global_best["position"][0]))
@@ -493,10 +523,10 @@ if __name__ == "__main__":
                 current_index = len(table._rows) + 1
                 now = datetime.datetime.now()
                 print([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j]) + ")", l,
-                       len(y_train), len(y_test), specifity[i][j], sensitivity[i][j], classification_accuracies[j],
-                       now.strftime("%Y-%m-%d %H:%M")])
+                       len(classification_inputs[j][2]), len(classification_inputs[j][3]),
+                       specifity[i][j], sensitivity[i][j], classification_accuracies[j], now.strftime("%Y-%m-%d %H:%M")])
                 table.add_row([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j]) + ")", l,
-                               len(y_train), len(y_test), specifity[i][j], sensitivity[i][j], classification_accuracies[j],
+                               len(classification_inputs[j][2]), len(classification_inputs[j][3]), specifity[i][j], sensitivity[i][j], classification_accuracies[j],
                                now.strftime("%Y-%m-%d %H:%M")])
 
         print("-------------------------------------------------------------")
