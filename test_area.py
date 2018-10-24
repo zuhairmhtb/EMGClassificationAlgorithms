@@ -1,4 +1,4 @@
-import os, random, pywt, sys, pdb, datetime, collections
+import os, random, pywt, sys, pdb, datetime, collections, math
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter, spectrogram, find_peaks
@@ -8,7 +8,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from prettytable import PrettyTable, from_csv, from_html_one
-from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
+from particle_swarm_optimization import Particle, PSO
+
+
 
 # Load data from dataset
 def get_dataset(data_base_dir, shuffle=True):
@@ -161,13 +163,13 @@ def calculate_mean_frequency(data, fs):
 # Calculate autocorrelation of a signal
 def calculate_autocorrelation(data):
     result = np.correlate(data, data, mode='full')
-    return result[int(result.size / 2):]
+    return result
 # Calculate zero lag value of autocorrelation of a data
 def calculate_zero_lag_autocorrelation(data):
     # Remove sample mean.
     xdm = np.asarray(data) - np.mean(data)
     autocorr_xdm = np.correlate(xdm, xdm, mode='full')
-    return autocorr_xdm[len(data) - 1]
+    return autocorr_xdm[int(len(data)/2) - 1]
 # Calculate Zero Crossing Rate
 def calculate_zero_crossing_rate(data):
     signs = []
@@ -189,8 +191,11 @@ def knn_optimize(x, args):
         classifier.fit(args[0], args[1])
         return classifier.score(args[2], args[3])
 
+# Test Section Specific modules
 
 if __name__ == "__main__":
+
+    # ------------------------------1. DATA ACQUISITION-------------------------------------------------
     data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
     # 1. Data Acquisition
     print("LOADING DATA SET")
@@ -209,4 +214,361 @@ if __name__ == "__main__":
 
     output_dir = "time_freq_classification_output"
 
-    
+    data_np = []
+    total_frames = 64
+    total_samples_per_frame = 4096
+
+
+    segmented_data = []
+    sampling_rates = []
+    plot_als = []
+    plot_normal = []
+    for i in range(len(urls)):
+        d = np.load(os.path.join(urls[i], data_filename))
+        fs = read_sampling_rate(os.path.join(urls[i], header_filename))
+        sampling_rates.append(fs)
+
+        # Adjust From both end: Crop data if the total number of sample is larger than expected sample and add zero otherwise
+        expected_samples = total_frames * total_samples_per_frame
+        extra = len(d) - expected_samples
+        left = int(abs(extra) / 2)
+        right = abs(extra) - left
+        if extra > 0:
+            d = d[left:len(d) - right]
+        elif extra < 0:
+            d = np.asarray([0] * left + list(d.flatten()) + [0] * right)
+
+        # Segment data into specified number of frames and samples per frame
+        sd = [d[i:i + total_samples_per_frame] for i in range(0, d.shape[0], total_samples_per_frame)]
+        segmented_data.append(sd)
+
+        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+            print("Found als")
+            plot_als = [sd, fs, "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
+        elif labels[i] != "als" and len(plot_normal) == 0:
+            print("Found other")
+            plot_normal = [sd, fs, "Healthy Subject", d]
+
+    """if len(plot_als) > 0 and len(plot_normal) > 0:
+        plt.figure(1)
+
+        signal = []
+        for i in range(len(plot_normal[0])):
+            signal = signal + list(plot_normal[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_normal[3])))
+        plt.suptitle("Raw EMG Signal(Biceps Brachii)")
+        plt.subplot(2, 2, 1)
+        plt.title(plot_normal[2] + "- Sampling rate: " + str(plot_normal[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 2)
+        plt.title(plot_normal[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_normal[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")
+
+
+        signal = []
+        for i in range(len(plot_als[0])):
+            signal = signal + list(plot_als[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_als[3])))
+        plt.subplot(2, 2, 3)
+        plt.title(plot_als[2] + "- Sampling rate: " + str(plot_als[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 4)
+        plt.title(plot_als[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1/plot_als[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")"""
+
+    # ------------------------------2. SIGNAL PREPROCESSING-------------------------------------------------
+
+    cropped_data = []
+    crop_start = 30
+    crop_length = 25
+    plot_als = []
+    plot_normal = []
+    for i in range(len(segmented_data)):
+        cd = segmented_data[i][crop_start:crop_start+crop_length]
+        cropped_data.append(cd)
+        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+            print("Found als")
+            plot_als = [cd, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
+        elif labels[i] != "als" and len(plot_normal) == 0:
+            print("Found other")
+            plot_normal = [cd, sampling_rates[i], "Healthy Subject", d]
+
+    """if len(plot_als) > 0 and len(plot_normal) > 0:
+        plt.figure(2)
+
+        signal = []
+        for i in range(len(plot_normal[0])):
+            signal = signal + list(plot_normal[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_normal[3])))
+        plt.suptitle("Cropped EMG Signal(Biceps Brachii)")
+        plt.subplot(2, 2, 1)
+        plt.title(plot_normal[2] + "- Sampling rate: " + str(plot_normal[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 2)
+        plt.title(plot_normal[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_normal[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")
+
+        signal = []
+        for i in range(len(plot_als[0])):
+            signal = signal + list(plot_als[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_als[3])))
+        plt.subplot(2, 2, 3)
+        plt.title(plot_als[2] + "- Sampling rate: " + str(plot_als[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 4)
+        plt.title(plot_als[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_als[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")"""
+
+
+    filtered_data = []
+    segmented_filtered_data = []
+    filter_band = 'lowpass'
+    filter_range = [1500]
+    plot_als = []
+    plot_als_b = []
+    plot_normal = []
+    plot_normal_b = []
+    for i in range(len(cropped_data)):
+        signal = []
+        segmented_signal = []
+        for j in range(len(cropped_data[i])):
+            signal = signal + list(cropped_data[i][j])
+            segmented_signal.append(butter_bandpass_filter(cropped_data[i][j],
+                                    filter_range, filter_band, sampling_rates[i], order=2))
+        fd = butter_bandpass_filter(np.asarray(signal), filter_range, filter_band, sampling_rates[i], order=2)
+        sfd = [fd[i:i + total_samples_per_frame] for i in range(0, fd.shape[0], total_samples_per_frame)]
+        filtered_data.append(sfd)
+        segmented_filtered_data.append(segmented_signal)
+
+        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+            print("Found als")
+            plot_als = [sfd, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
+
+        elif labels[i] != "als" and len(plot_normal) == 0:
+            print("Found other")
+            plot_normal = [sfd, sampling_rates[i], "Healthy Subject", d]
+
+        if labels[i] == label_map.index("als") and len(plot_als_b) == 0:
+            print("Found als")
+            plot_als_b = [segmented_signal, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
+        elif labels[i] != "als" and len(plot_normal_b) == 0:
+            print("Found other")
+            plot_normal_b = [segmented_signal, sampling_rates[i], "Healthy Subject", d]
+
+    """if len(plot_als) > 0 and len(plot_normal) > 0:
+        plt.figure(3)
+
+        signal = []
+        for i in range(len(plot_normal[0])):
+            signal = signal + list(plot_normal[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_normal[3])))
+        plt.suptitle("Filtered EMG Signal(Biceps Brachii)")
+        plt.subplot(2, 2, 1)
+        plt.title(plot_normal[2] + "- Sampling rate: " + str(plot_normal[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 2)
+        plt.title(plot_normal[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_normal[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")
+
+        signal = []
+        for i in range(len(plot_als[0])):
+            signal = signal + list(plot_als[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_als[3])))
+        plt.subplot(2, 2, 3)
+        plt.title(plot_als[2] + "- Sampling rate: " + str(plot_als[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 4)
+        plt.title(plot_als[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_als[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")"""
+
+
+    """if len(plot_als_b) > 0 and len(plot_normal_b) > 0:
+        plt.figure(4)
+
+        signal = []
+        for i in range(len(plot_normal_b[0])):
+            signal = signal + list(plot_normal_b[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_normal_b[3])))
+        plt.suptitle("Segmented Filtered EMG Signal(Biceps Brachii)")
+        plt.subplot(2, 2, 1)
+        plt.title(plot_normal_b[2] + "- Sampling rate: " + str(plot_normal_b[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 2)
+        plt.title(plot_normal_b[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_normal_b[1])
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")
+
+        signal = []
+        for i in range(len(plot_als_b[0])):
+            signal = signal + list(plot_als_b[0][i])
+        print("Reconstructed Signal length: " + str(len(signal)))
+        print("Original Signal length: " + str(len(plot_als_b[3])))
+        plt.subplot(2, 2, 3)
+        plt.title(plot_als_b[2] + "- Sampling rate: " + str(plot_als_b[1]) + "Hz")
+        plt.plot(signal)
+        plt.grid()
+        plt.xlabel("Samples[n]")
+        plt.ylabel("Amplitude(uV)")
+
+        plt.subplot(2, 2, 4)
+        plt.title(plot_als_b[2] + "-Fast Fourier Transform")
+        fourier = abs(np.fft.fft(signal))
+        freqs = np.fft.fftfreq(len(signal), 1 / plot_als_b[1])
+
+        plt.plot(freqs[0:len(freqs)//2], fourier[0:len(freqs)//2])
+        plt.grid()
+        plt.xlabel("Frequency(Hz)")
+        plt.ylabel("Amplitude of Magnitude Spectrum")
+        plt.show()
+
+
+        # Outputs for Signal Preprocessing
+
+        # 1. FFT of 5 arbitary frames of each ALS Patients
+        random_frames = 5
+        total_signals = 1
+        remaining_data = [total_signals for _ in range(len(label_map))]
+        collected_data = [[] for _ in range(len(label_map))]
+        for i in range(len(urls)):
+            if remaining_data[labels[i]] > 0:
+                collected_data[labels[i]].append(segmented_filtered_data[i])
+                remaining_data[labels[i]] -= 1
+
+        top = ""
+        bottom = ""
+        if label_map[0] == "als":
+            top = "Neurogenic(ALS)"
+            bottom = "Healthy"
+        else:
+            bottom = "Neurogenic(ALS)"
+            top = "Healthy"
+        plt.figure(5)
+        plt.suptitle("FFT of 5 random frames from each subject: " + top + "-Top, " + bottom + "-Bottom")
+        plt.figure(6)
+        plt.suptitle("Filtered Signal [" + str(filter_band.upper()) + ": " + str(filter_range[-1]) + " Hz] of 5 random frames from each subject: " + top + "-Top, " + bottom + "-Bottom")
+        plt.figure(7)
+        plt.suptitle("Autocorrelation of 5 random frames from each subject: " + top + "-Top, " + bottom + "-Bottom")
+        current = 1
+        for i in range(len(label_map)):
+
+            for j in range(total_signals):
+                segments = np.random.randint(0, len(collected_data[i][j]), random_frames)
+                for k in range(random_frames):
+                    fourier = np.fft.fft(collected_data[i][j][segments[k]])
+                    freqs = np.fft.fftfreq(len(collected_data[i][j][segments[k]]), 1 / filter_range[-1])
+                    autocorrelation = calculate_autocorrelation(collected_data[i][j][segments[k]])
+
+                    plt.figure(5)
+                    plt.subplot(2, random_frames, current)
+                    plt.xlabel("Frequency(Hz)")
+                    plt.ylabel("Amplitude")
+                    plt.grid()
+                    plt.title("Segment No. " + str(segments[k]+1))
+                    plt.plot(freqs[0 : len(freqs) // 2], abs(fourier[0 : len(fourier) // 2]))
+
+
+                    plt.figure(6)
+                    plt.subplot(2, random_frames, current)
+                    plt.xlabel("Samples[n]")
+                    plt.ylabel("Amplitude[uV]")
+                    plt.grid()
+                    plt.title("Segment No. " + str(segments[k] + 1))
+                    plt.plot(collected_data[i][j][segments[k]])
+
+
+                    plt.figure(7)
+                    plt.subplot(2, random_frames, current)
+                    plt.xlabel("Samples[n]")
+                    plt.ylabel("Amplitude")
+                    plt.grid()
+                    plt.title("Segment No. " + str(segments[k] + 1))
+                    plt.plot(autocorrelation)
+
+
+                    current += 1
+        plt.show()"""
+
+
+    # ------------------------------3. FEATURE EXTRACTION-------------------------------------------------
+
+    avg_amplitude_table = PrettyTable()
+    avg_amplitude_table.field_names = ["SL No.", "Subject Type", "Maximum Amplitude",
+                                       "Minimum Amplitude", "Average Amplitude",
+                                       "Maximum Frequency", "Minimum Frequency",
+                                       "Average Frequency"]
+    total_subjects = 3
+
+    spectral_amplitudes = []
+    for i in range(len(segmented_filtered_data)):
+        for j in range(segmented_filtered_data[i]):
+            fourier, peaks = calculate_spectral_peak(segmented_filtered_data[i][j])
+            print(peaks)

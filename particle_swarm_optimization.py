@@ -7,7 +7,7 @@ from sklearn import preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-from prettytable import PrettyTable, from_csv, from_html_one
+#from prettytable import PrettyTable, from_csv, from_html_one
 class Particle:
     """
     Particle objects for the PSO swarm
