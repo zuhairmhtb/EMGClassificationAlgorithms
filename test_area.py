@@ -196,7 +196,7 @@ def knn_optimize(x, args):
 if __name__ == "__main__":
 
     # ------------------------------1. DATA ACQUISITION-------------------------------------------------
-    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
     result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
     # 1. Data Acquisition
     print("LOADING DATA SET")
@@ -243,10 +243,10 @@ if __name__ == "__main__":
         sd = [d[i:i + total_samples_per_frame] for i in range(0, d.shape[0], total_samples_per_frame)]
         segmented_data.append(sd)
 
-        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+        if labels[i] == als_patient_label and len(plot_als) == 0:
             print("Found als")
             plot_als = [sd, fs, "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
-        elif labels[i] != "als" and len(plot_normal) == 0:
+        elif labels[i] != als_patient_label and len(plot_normal) == 0:
             print("Found other")
             plot_normal = [sd, fs, "Healthy Subject", d]
 
@@ -307,10 +307,10 @@ if __name__ == "__main__":
     for i in range(len(segmented_data)):
         cd = segmented_data[i][crop_start:crop_start+crop_length]
         cropped_data.append(cd)
-        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+        if labels[i] == als_patient_label and len(plot_als) == 0:
             print("Found als")
             plot_als = [cd, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
-        elif labels[i] != "als" and len(plot_normal) == 0:
+        elif labels[i] != als_patient_label and len(plot_normal) == 0:
             print("Found other")
             plot_normal = [cd, sampling_rates[i], "Healthy Subject", d]
 
@@ -381,18 +381,18 @@ if __name__ == "__main__":
         filtered_data.append(sfd)
         segmented_filtered_data.append(segmented_signal)
 
-        if labels[i] == label_map.index("als") and len(plot_als) == 0:
+        if labels[i] == als_patient_label and len(plot_als) == 0:
             print("Found als")
             plot_als = [sfd, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
 
-        elif labels[i] != "als" and len(plot_normal) == 0:
+        elif labels[i] != als_patient_label and len(plot_normal) == 0:
             print("Found other")
             plot_normal = [sfd, sampling_rates[i], "Healthy Subject", d]
 
-        if labels[i] == label_map.index("als") and len(plot_als_b) == 0:
+        if labels[i] == als_patient_label and len(plot_als_b) == 0:
             print("Found als")
             plot_als_b = [segmented_signal, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
-        elif labels[i] != "als" and len(plot_normal_b) == 0:
+        elif labels[i] != als_patient_label and len(plot_normal_b) == 0:
             print("Found other")
             plot_normal_b = [segmented_signal, sampling_rates[i], "Healthy Subject", d]
 
@@ -506,7 +506,7 @@ if __name__ == "__main__":
 
         top = ""
         bottom = ""
-        if label_map[0] == "als":
+        if label_map[0] == als_patient_label:
             top = "Neurogenic(ALS)"
             bottom = "Healthy"
         else:
@@ -609,12 +609,12 @@ if __name__ == "__main__":
         avg_freq = avg_freq/total
         segmented_avg_spectral_amplitudes.append(segmented_amps)
 
-        if label_map[labels[i]] == "als" and total_als > 0:
+        if label_map[labels[i]] == label_map[als_patient_label] and total_als > 0:
             subject_type = "Neurogenic(Amyotrophic Lateral Sclerosis)"
             avg_amplitude_table.add_row([current, subject_type, max_amp, min_amp, avg_amp,
                                          max_freq, min_freq, avg_freq])
             total_als -= 1
-        elif label_map[labels[i]] != "als" and total_normal > 0:
+        elif label_map[labels[i]] != label_map[als_patient_label] and total_normal > 0:
             subject_type = "Healthy"
             total_normal -= 1
             avg_amplitude_table.add_row([current, subject_type, max_amp, min_amp, avg_amp,
@@ -622,7 +622,7 @@ if __name__ == "__main__":
 
 
     print(avg_amplitude_table.get_string())
-    spectral_peak_table_path = os.path.join(result_base_dir, "spectral_peaks_table.html")
+    spectral_peak_table_path = os.path.join(result_base_dir, "simulated_signal_pso_knn_spectral_peaks_table.html")
     #with open(spectral_peak_table_path, 'w') as fp:
      #   fp.write(avg_amplitude_table.get_html_string())
 
@@ -672,7 +672,7 @@ if __name__ == "__main__":
 
     test_predictions = []
 
-    total_iterations = 5
+    total_iterations = 20
 
     data_size = [(i+1)/total_iterations for i in range(total_iterations)]
 
@@ -696,11 +696,23 @@ if __name__ == "__main__":
             print("Input size: " + str(feature_input[i]))
             features = np.asarray(classification_features[i])[0:feature_input[i], :]
             lab = labels[0:feature_input[i]]
-            X_train, X_test, y_train, y_test = train_test_split(features, lab, test_size=0.1,
+            X_train, X_test, y_train, y_test = train_test_split(features, lab, test_size=0.2,
                                                                 shuffle=True)
+            for t in range(len(label_map)):
+                if not (t in y_test):
+                    for u in range(len(y_train)):
+                        if y_train[u] == t:
+                            tmp_lab = y_train[u]
+                            tmp_dat = X_train[u]
+                            y_train[u] = y_test[0]
+                            X_train[u] = X_test[0]
+                            y_test[0] = tmp_lab
+                            X_test[0] = tmp_dat
+                            break
+
             print("Train data shape: " + str(X_train.shape))
             print("Test data shape: " + str(X_test.shape))
-            classifier_neighbor_range = [2, 10]
+            classifier_neighbor_range = [1]
 
             if len(classifier_neighbor_range) > 1:
                 pso = PSO(knn_optimize, [classifier_neighbor_range[1]], [classifier_neighbor_range[0]], fitness_minimize=False, cost_function_args=(X_train, y_train),
@@ -719,8 +731,9 @@ if __name__ == "__main__":
 
             else:
                 n_neighbors = classifier_neighbor_range[-1]
+                folds = 0.1
                 feature_neighbor.append(n_neighbors)
-                t_size = int(0.1*len(X_train))
+                t_size = int(folds*len(X_train))
                 y_train = np.asarray(y_train)
                 y_test = np.asarray(y_test)
                 avg_acc = 0
@@ -750,11 +763,11 @@ if __name__ == "__main__":
             for a in range(len(predictions)):
                 if predictions[a] == lab[a]:
                     acc += 1
-                    if label_map[predictions[a]] == "als":
+                    if predictions[a] == als_patient_label:
                         specifity += 1
                     else:
                         sensitivity += 1
-                if label_map[lab[a]] == "als":
+                if lab[a] == als_patient_label:
                     total_als += 1
                 else:
                     total_other += 1
@@ -779,7 +792,7 @@ if __name__ == "__main__":
         total_neighbors.append(feature_neighbor)
 
     fig_num = 8
-    performance_table_path = result_base_dir + "average_performance_graph.html"
+    performance_table_path = result_base_dir + "simulated_signal_pso_knn_average_performance_graph.html"
     if os.path.exists(performance_table_path):
         with open(performance_table_path, 'r') as fp:
             performance_table = from_html_one(fp.read())
@@ -808,7 +821,7 @@ if __name__ == "__main__":
                                    "{0:.2f}".format(np.average(np.asarray(total_sensitivity)[:, i]))
                                    ])
     plt.show()
-    with open(performance_table_path, 'w') as fp:
-        fp.write(performance_table.get_html_string())
+    #with open(performance_table_path, 'w') as fp:
+        #fp.write(performance_table.get_html_string())
 
     # ------------------------------4. PERFORMANCE-------------------------------------------------
