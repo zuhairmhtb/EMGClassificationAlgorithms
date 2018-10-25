@@ -197,6 +197,7 @@ if __name__ == "__main__":
 
     # ------------------------------1. DATA ACQUISITION-------------------------------------------------
     data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+    result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
     # 1. Data Acquisition
     print("LOADING DATA SET")
     urls, labels, label_map = get_dataset(data_base_dir, shuffle=True)
@@ -565,10 +566,58 @@ if __name__ == "__main__":
                                        "Minimum Amplitude", "Average Amplitude",
                                        "Maximum Frequency", "Minimum Frequency",
                                        "Average Frequency"]
-    total_subjects = 3
+    total_als = 3
+    total_normal = 3
 
-    spectral_amplitudes = []
+    avg_spectral_amplitudes = []
     for i in range(len(segmented_filtered_data)):
-        for j in range(segmented_filtered_data[i]):
+        current = len(avg_amplitude_table._rows)
+        max_amp = -sys.maxsize
+        min_amp = sys.maxsize
+        max_freq = 0
+        min_freq = 0
+        max_segment = 0
+        min_segment = 0
+        avg_amp = 0
+        avg_freq = 0
+        total = 0
+        for j in range(len(segmented_filtered_data[i])):
             fourier, peaks = calculate_spectral_peak(segmented_filtered_data[i][j])
-            print(peaks)
+            freqs = np.fft.fftfreq(len(segmented_filtered_data[i][j]), 1/filter_range[-1])
+            freqs = freqs[0:len(freqs) // 2]
+            for k in range(len(peaks)):
+                if fourier[peaks[k]] > max_amp:
+                    max_amp = fourier[peaks[k]]
+                    max_freq = freqs[peaks[k]]
+                    max_segment = j
+                elif fourier[peaks[k]] < min_amp:
+                    min_amp = fourier[peaks[k]]
+                    min_freq = freqs[peaks[k]]
+                    min_seg = j
+                avg_amp += fourier[peaks[k]]
+                avg_freq += freqs[peaks[k]]
+                total += 1
+
+        avg_amp = avg_amp/total
+        avg_spectral_amplitudes.append(avg_amp)
+        avg_freq = avg_freq/total
+
+
+        if label_map[labels[i]] == "als" and total_als > 0:
+            subject_type = "Neurogenic(Amyotrophic Lateral Sclerosis)"
+            avg_amplitude_table.add_row([current, subject_type, max_amp, min_amp, avg_amp,
+                                         max_freq, min_freq, avg_freq])
+            total_als -= 1
+        elif label_map[labels[i]] != "als" and total_normal > 0:
+            subject_type = "Healthy"
+            total_normal -= 1
+            avg_amplitude_table.add_row([current, subject_type, max_amp, min_amp, avg_amp,
+                                         max_freq, min_freq, avg_freq])
+
+
+    print(avg_amplitude_table.get_string())
+    spectral_peak_table_path = os.path.join(result_base_dir, "spectral_peaks_table.html")
+    with open(spectral_peak_table_path, 'w') as fp:
+        fp.write(avg_amplitude_table.get_html_string())
+
+

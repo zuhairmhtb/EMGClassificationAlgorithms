@@ -154,9 +154,12 @@ def calculate_spectral_peak(data, thresh=None):
         return fourier, peaks
 
 # Calculate Average Spectral Amplitude from FFT of a data
-def calculate_avg_spectral_amplitude(data, thresh=None):
+def calculate_max_spectral_amplitude(data, thresh=None):
     fourier, peaks = calculate_spectral_peak(data, thresh)
-    return np.average(fourier[peaks])
+    if len(peaks) > 0:
+        return np.amax(fourier[peaks])
+    else:
+        return 0
 
 
 
@@ -176,7 +179,7 @@ def calculate_zero_lag_autocorrelation(data):
     # Remove sample mean.
     xdm = np.asarray(data) - np.mean(data)
     autocorr_xdm = np.correlate(xdm, xdm, mode='full')
-    return autocorr_xdm[len(data) - 1]
+    return autocorr_xdm[int(len(data)/2)]
 # Calculate Zero Crossing Rate
 def calculate_zero_crossing_rate(data):
     signs = []
@@ -224,7 +227,7 @@ if __name__ == "__main__":
         table = PrettyTable()
         table.field_names = ["Index No.", "Signal Type", "Muscle Location", "Classifier", "Subject type",
                              "Train data size", "Test data size", "Specifity(%)",
-                             "Sensitivity(%)", "Performance accuracy(%)", "Classification Date"]
+                             "Sensitivity(%)", "Performance accuracy(%)", "Test Accuracy(%)","Classification Date"]
 
     # 1. Data Acquisition
     print("LOADING DATA SET")
@@ -322,19 +325,19 @@ if __name__ == "__main__":
                                          for j in range(len(filtered_segmented_data[i]))])
         if len(spectral_peaks[i]) > 0:
 
-            avg_amplitude = calculate_avg_spectral_amplitude(filtered_data[i])
+            avg_amplitude = calculate_max_spectral_amplitude(filtered_data[i])
         else:
             avg_amplitude = 0
         segmented_avg_amplitude = []
         for j in range(len(segmented_spectral_peaks[i])):
             if len(segmented_spectral_peaks[i][j]) > 0:
-                segmented_avg_amplitude.append(calculate_avg_spectral_amplitude(filtered_segmented_data[i][j]))
+                segmented_avg_amplitude.append(calculate_max_spectral_amplitude(filtered_segmented_data[i][j]))
             else:
-                segmented_avg_amplitude.append([])
+                segmented_avg_amplitude.append(0)
         avg_spectral_amps.append(avg_amplitude)
         segmented_avg_spectral_amps.append(segmented_avg_amplitude)
         print("Patient type: " + str(label_map[labels[i]]))
-        print("Avg Spectral Amplitude: " + str(np.average(segmented_avg_amplitude)))
+        print("Max Spectral Amplitude: " + str(segmented_avg_amplitude))
         if verbose:
             print("PATIENT TYPE: " + str(labels[i]))
             print("Average Spectral Amplitude: " + str(avg_spectral_amps))
@@ -347,7 +350,7 @@ if __name__ == "__main__":
         smf = [calculate_mean_frequency(filtered_segmented_data[i][j], fs)
                                      for j in range(len(filtered_segmented_data[i]))]
         segmented_mean_freqs.append(smf)
-        print("Mean frequency: " + str(np.average(smf)))
+        print("Mean frequency: " + str(smf))
         if verbose:
             print("Mean Frequency: " + str(mean_freqs))
             print(
@@ -371,6 +374,7 @@ if __name__ == "__main__":
         szl = [calculate_zero_lag_autocorrelation(filtered_segmented_data[i][j])
                                      for j in range(len(filtered_segmented_data[i]))]
         segmented_zero_lags.append(szl)
+        print('Segmented zero lag: ' + str(szl))
         #print("Segmented zero lag: " + str(szl))
         if verbose:
             print("Zero Lag: " + str(zero_lags))
@@ -434,6 +438,7 @@ if __name__ == "__main__":
 
     classifiers = [KNeighborsClassifier(n_neighbors=1) for _ in range(len(classification_features))]
     classification_inputs = []
+    training_accuracies = []
     for j in range(len(classification_features)):
        # if scale:
         #    id = preprocessing.scale(np.asarray(classification_features[j]))
@@ -444,13 +449,15 @@ if __name__ == "__main__":
         pso = PSO(knn_optimize, [20], [2], fitness_minimize=False, cost_function_args=(X_train, y_train),
                   verbose=False, ndview=False)
         knn_particles, knn_global_best, knn_best_costs = pso.run()
-        classification_inputs.append((X_train, X_test, y_train, y_test))
+        classification_inputs.append([X_train, X_test, y_train, y_test])
         print("Best Neighbors for classification feature: " + classification_feature_labels[j] + ": " + str(knn_global_best["position"][0]))
         classifiers[j] = KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0]))
+        training_accuracies.append("{0:.2f}".format(knn_global_best["cost"] * 100))
 
     classification_accuracies = []
     classification_predictions = []
     for i in range(len(classification_features)):
+        classification_inputs[i][3] = np.asarray(classification_inputs[i][3])
         if verbose:
             print("------------------------------------------------------------")
             print("Classifying For " + str(classification_feature_labels[i]))
@@ -465,7 +472,11 @@ if __name__ == "__main__":
         classifiers[i].fit(classification_inputs[i][0], classification_inputs[i][2])
         acc = classifiers[i].score(classification_inputs[i][1], classification_inputs[i][3])
         classification_accuracies.append(float("{0:.2f}".format(acc*100)))
-        classification_predictions.append(classifiers[i].predict(classification_inputs[i][1]))
+        predictions = classifiers[i].predict(classification_inputs[i][1])
+        classification_predictions.append(predictions)
+        print("Feature: " + str(classification_feature_labels[i]))
+        print("Prediction: " + str(predictions))
+        print("Target: " + str(classification_inputs[i][3]))
         if verbose:
             print("Accuracy: " + "{0:.2f}".format(acc*100))
             print("------------------------------------------------------------")
@@ -509,6 +520,7 @@ if __name__ == "__main__":
             print("Sensitivity(%): " + str(sensitivity[i][j]))
             print("Specifity(%): " + str(specifity[i][j]))
             print("Accuracy(%): " + str(classification_accuracies[j]))
+            print("Training Accuracy(%): " + str(training_accuracies[j]))
 
             # Save the data
             if label_map[i].lower() == "als" or label_map[i].lower() == "neuropathy":
@@ -522,13 +534,15 @@ if __name__ == "__main__":
                 #                    "Train data size", "Test data size", "Subject's test data size", "Accuracy(%)", "Classification Date"]
                 current_index = len(table._rows) + 1
                 now = datetime.datetime.now()
-                print([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j]) + ")", l,
+                print([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j].n_neighbors) + ")", l,
                        len(classification_inputs[j][2]), len(classification_inputs[j][3]),
-                       specifity[i][j], sensitivity[i][j], classification_accuracies[j], now.strftime("%Y-%m-%d %H:%M")])
-                table.add_row([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j]) + ")", l,
+                       specifity[i][j], sensitivity[i][j], classification_accuracies[j], training_accuracies[j], now.strftime("%Y-%m-%d %H:%M")])
+                table.add_row([current_index, signal_type, muscle_location, "KNN(neighbors=" + str(classifiers[j].n_neighbors) + ")", l,
                                len(classification_inputs[j][2]), len(classification_inputs[j][3]), specifity[i][j], sensitivity[i][j], classification_accuracies[j],
-                               now.strftime("%Y-%m-%d %H:%M")])
+                               training_accuracies[j], now.strftime("%Y-%m-%d %H:%M")])
 
         print("-------------------------------------------------------------")
-
+    if save_result:
+        with open(result_path, 'w') as fp:
+            fp.write(table.get_html_string())
 
