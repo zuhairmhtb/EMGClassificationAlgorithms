@@ -8,7 +8,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from prettytable import PrettyTable, from_csv, from_html_one
-from particle_swarm_optimization import Particle, PSO
+from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
 
 
 
@@ -561,6 +561,8 @@ if __name__ == "__main__":
 
     # ------------------------------3. FEATURE EXTRACTION-------------------------------------------------
 
+
+    # 1. Average Spectral Amplitude
     avg_amplitude_table = PrettyTable()
     avg_amplitude_table.field_names = ["SL No.", "Subject Type", "Maximum Amplitude",
                                        "Minimum Amplitude", "Average Amplitude",
@@ -570,6 +572,7 @@ if __name__ == "__main__":
     total_normal = 3
 
     avg_spectral_amplitudes = []
+    segmented_avg_spectral_amplitudes = []
     for i in range(len(segmented_filtered_data)):
         current = len(avg_amplitude_table._rows)
         max_amp = -sys.maxsize
@@ -581,10 +584,12 @@ if __name__ == "__main__":
         avg_amp = 0
         avg_freq = 0
         total = 0
+        segmented_amps = []
         for j in range(len(segmented_filtered_data[i])):
             fourier, peaks = calculate_spectral_peak(segmented_filtered_data[i][j])
             freqs = np.fft.fftfreq(len(segmented_filtered_data[i][j]), 1/filter_range[-1])
             freqs = freqs[0:len(freqs) // 2]
+
             for k in range(len(peaks)):
                 if fourier[peaks[k]] > max_amp:
                     max_amp = fourier[peaks[k]]
@@ -597,11 +602,12 @@ if __name__ == "__main__":
                 avg_amp += fourier[peaks[k]]
                 avg_freq += freqs[peaks[k]]
                 total += 1
+            segmented_amps.append(np.mean(fourier[peaks]))
 
         avg_amp = avg_amp/total
         avg_spectral_amplitudes.append(avg_amp)
         avg_freq = avg_freq/total
-
+        segmented_avg_spectral_amplitudes.append(segmented_amps)
 
         if label_map[labels[i]] == "als" and total_als > 0:
             subject_type = "Neurogenic(Amyotrophic Lateral Sclerosis)"
@@ -617,7 +623,192 @@ if __name__ == "__main__":
 
     print(avg_amplitude_table.get_string())
     spectral_peak_table_path = os.path.join(result_base_dir, "spectral_peaks_table.html")
-    with open(spectral_peak_table_path, 'w') as fp:
-        fp.write(avg_amplitude_table.get_html_string())
+    #with open(spectral_peak_table_path, 'w') as fp:
+     #   fp.write(avg_amplitude_table.get_html_string())
+
+    # Mean Frequency, zero lag of autocorrelation and Zero Crossing rate
+    mean_frequencies = []
+    zero_lag = []
+    zero_crossing = []
+    for i in range(len(segmented_filtered_data)):
+        print('Extracting Feature from data no. ' + str(i+1))
+        d = segmented_filtered_data[i]
+        mf = []
+        zl = []
+        zc = []
+        for j in range(len(d)):
+            mf.append(calculate_mean_frequency(d[j], sampling_rates[i]))
+            zl.append(calculate_zero_lag_autocorrelation(d[j]))
+            zc.append(calculate_zero_crossing_rate(d[j]))
+        mean_frequencies.append(mf)
+        zero_lag.append(zl)
+        zero_crossing.append(zc)
+    print('Total data: ' + str(len(urls)))
+    print('Labels: ' + str(labels))
+    print('Total Mean frequency data: ' + str(len(mean_frequencies)))
+    print(mean_frequencies)
+
+    print('Total Zero Lag data: ' + str(len(zero_lag)))
+    print(zero_lag)
+
+    print('Total Zero Crossing data: ' + str(len(zero_crossing)))
+    print(zero_crossing)
 
 
+
+
+    # ------------------------------3. CLASSIFICATION-------------------------------------------------
+
+
+    n_neighbors = 1
+
+    classification_feature_labels = ["Average Spectral Amplitude", "Mean Frequency",
+                                     "Zero Lag", "Zero Crossing rate"]
+    classification_features = [segmented_avg_spectral_amplitudes, mean_frequencies,
+                               zero_lag, zero_crossing]
+
+    classification_inputs = []
+    training_accuracies = []
+
+    test_predictions = []
+
+    total_iterations = 5
+
+    data_size = [(i+1)/total_iterations for i in range(total_iterations)]
+
+    total_train_accuracy = []
+    total_test_accuracy = []
+    total_specifity = []
+    total_sensitivity = []
+    total_input_data = []
+    total_neighbors = []
+    for iter in range(total_iterations):
+        print("=================Classification Iteration No. " + str(iter+1)  + "======================\n")
+        feature_train_accuracy = []
+        feature_test_accuracy = []
+        feature_specifity = []
+        feature_sensitivity = []
+        feature_input = []
+        feature_neighbor = []
+        for i in range(len(classification_features)):
+            print("------Feature: " + str(classification_feature_labels[i]) + "--------------")
+            feature_input.append(int(len(classification_features[i])*data_size[iter]))
+            print("Input size: " + str(feature_input[i]))
+            features = np.asarray(classification_features[i])[0:feature_input[i], :]
+            lab = labels[0:feature_input[i]]
+            X_train, X_test, y_train, y_test = train_test_split(features, lab, test_size=0.1,
+                                                                shuffle=True)
+            print("Train data shape: " + str(X_train.shape))
+            print("Test data shape: " + str(X_test.shape))
+            classifier_neighbor_range = [2, 10]
+
+            if len(classifier_neighbor_range) > 1:
+                pso = PSO(knn_optimize, [classifier_neighbor_range[1]], [classifier_neighbor_range[0]], fitness_minimize=False, cost_function_args=(X_train, y_train),
+                      verbose=False, ndview=False, max_iteration=50)
+                knn_particles, knn_global_best, knn_best_costs = pso.run()
+                classification_inputs.append([X_train, X_test, y_train, y_test])
+                print("Best Neighbors for classification feature: " + classification_feature_labels[i] + ": " + str(
+                    knn_global_best["position"][0]))
+
+                n_neighbors = int(knn_global_best["position"][0])
+                classifier = KNeighborsClassifier(n_neighbors=n_neighbors)
+                feature_neighbor.append(n_neighbors)
+                classifier.fit(X_train, y_train)
+                training_accuracies.append(float("{0:.2f}".format(knn_global_best["cost"]*100)))
+                ta = float("{0:.2f}".format(knn_global_best["cost"]*100))
+
+            else:
+                n_neighbors = classifier_neighbor_range[-1]
+                feature_neighbor.append(n_neighbors)
+                t_size = int(0.1*len(X_train))
+                y_train = np.asarray(y_train)
+                y_test = np.asarray(y_test)
+                avg_acc = 0
+                avg_total = 0
+                for n in range(0, int(len(X_train)/t_size), t_size):
+                    x1 = X_train[n:n+t_size, :]
+                    y1 = y_train[n:n+t_size]
+                    x2 = np.concatenate((X_train[0:n, :], X_train[n+t_size:, :]))
+                    y2 = np.concatenate((y_train[0:n], y_train[n+t_size:]))
+                    classifier = KNeighborsClassifier(n_neighbors=n_neighbors)
+                    classifier.fit(x2, y2)
+                    acc = classifier.score(x1, y1)
+                    avg_acc += acc
+                    avg_total += 1
+                training_accuracies.append(float("{0:.2f}".format((avg_acc/avg_total)*100)))
+                ta = float("{0:.2f}".format((avg_acc/avg_total)*100))
+                classifier = KNeighborsClassifier(n_neighbors=n_neighbors)
+                classifier.fit(X_train, y_train)
+            print("Classifying with " + str(n_neighbors) + " Neighbors")
+            predictions = classifier.predict(X_test)
+            test_predictions.append(predictions)
+            acc = 0
+            specifity = 0
+            total_als = 0
+            sensitivity = 0
+            total_other = 0
+            for a in range(len(predictions)):
+                if predictions[a] == lab[a]:
+                    acc += 1
+                    if label_map[predictions[a]] == "als":
+                        specifity += 1
+                    else:
+                        sensitivity += 1
+                if label_map[lab[a]] == "als":
+                    total_als += 1
+                else:
+                    total_other += 1
+            specifity = (specifity/total_als) * 100
+            sensitivity = (sensitivity/total_other) * 100
+            print('Predictions: ' + str(predictions))
+            print('Target:' + str(np.asarray(list(lab))))
+            print('Train Accuracy: ' + str(ta))
+            print("Test Accuracy: " + "{0:.2f}".format((acc/len(predictions))*100))
+            print("Specifity: " + "{0:.2f}".format(specifity))
+            print("Sensitivity: " + "{0:.2f}".format(sensitivity))
+            feature_train_accuracy.append(ta)
+            feature_test_accuracy.append((acc/len(predictions))*100)
+            feature_specifity.append(specifity)
+            feature_sensitivity.append(sensitivity)
+
+        total_train_accuracy.append(feature_train_accuracy)
+        total_test_accuracy.append(feature_test_accuracy)
+        total_specifity.append(feature_specifity)
+        total_sensitivity.append(feature_sensitivity)
+        total_input_data.append(feature_input)
+        total_neighbors.append(feature_neighbor)
+
+    fig_num = 8
+    performance_table_path = result_base_dir + "average_performance_graph.html"
+    if os.path.exists(performance_table_path):
+        with open(performance_table_path, 'r') as fp:
+            performance_table = from_html_one(fp.read())
+    else:
+        performance_table = PrettyTable()
+        performance_table.field_names = ["SL No.", "Classification Feature", "Average Train Accuracy(%)",
+                                         "Average Test Accuracy(%)", "Average Specifity(%)", "Average Sensitivity(%)"]
+    for i in range(len(classification_feature_labels)):
+        plt.figure(fig_num+i)
+        plt.suptitle("Performance Graph for Classification with feature: " + str(classification_feature_labels[i].upper()))
+
+        plt.xlabel("Input Data size[n]")
+        plt.ylabel("Performance(%)")
+        plt.grid()
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_train_accuracy)[:, i], label="Train Accuracy")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_test_accuracy)[:, i], label="Test Accuracy")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_specifity)[:, i], label="Specifity")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_sensitivity)[:, i], label="Sensitivity")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_neighbors)[:, i], label="Nearest Neighbors")
+        plt.legend()
+
+        performance_table.add_row([i+1, classification_feature_labels[i].upper(),
+                                   "{0:.2f}".format(np.average( np.asarray(total_train_accuracy)[:, i])),
+                                   "{0:.2f}".format(np.average( np.asarray(total_test_accuracy)[:, i])),
+                                   "{0:.2f}".format(np.average(np.asarray(total_specifity)[:, i])),
+                                   "{0:.2f}".format(np.average(np.asarray(total_sensitivity)[:, i]))
+                                   ])
+    plt.show()
+    with open(performance_table_path, 'w') as fp:
+        fp.write(performance_table.get_html_string())
+
+    # ------------------------------4. PERFORMANCE-------------------------------------------------

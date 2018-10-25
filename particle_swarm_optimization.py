@@ -118,10 +118,11 @@ class PSO:
                     self.globalBest["cost"] = particle.best["cost"]
 
             self.particles.append(particle)
-            print("--------------------Particle Number " + str(i+1)  +"--------------------")
-            print("Current Position: " + str(particle.position))
-            print("Current velocity: " + str(particle.velocity))
-            print("Current Best : " + str(particle.best) + "\n")
+            if self.verbose:
+                print("--------------------Particle Number " + str(i+1)  +"--------------------")
+                print("Current Position: " + str(particle.position))
+                print("Current velocity: " + str(particle.velocity))
+                print("Current Best : " + str(particle.best) + "\n")
     def run(self):
         self.initialize()
         # Main Loop of PSO
@@ -180,7 +181,8 @@ class PSO:
 
             self.bestCosts.append(self.globalBest["cost"])
             self.bestPositions.append(self.globalBest["position"])
-            print("Iteration No. " + str(it + 1) + ": Best Cost = " + str(self.globalBest["cost"]) + ", Best Position: " + str(self.globalBest["position"]))
+            if self.verbose:
+                print("Iteration No. " + str(it + 1) + ": Best Cost = " + str(self.globalBest["cost"]) + ", Best Position: " + str(self.globalBest["position"]))
             self.w = self.w * self.w_damp
 
             if self.verbose:
