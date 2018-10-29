@@ -194,11 +194,9 @@ def knn_optimize(x, args):
 # Test Section Specific modules
 
 if __name__ == "__main__":
-
-    # ------------------------------1. DATA ACQUISITION-------------------------------------------------
-    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
+    # ------------------------------PREDEFINED PARAMETERS-----------------------------------------------
+    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
     result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
-    # 1. Data Acquisition
     print("LOADING DATA SET")
     urls, labels, label_map = get_dataset(data_base_dir, shuffle=True)
 
@@ -214,12 +212,27 @@ if __name__ == "__main__":
     print('Dataset Loaded - Total: ' + str(len(urls)) + ', Output Classes: ' + str(len(label_map)))
 
     output_dir = "time_freq_classification_output"
-
-    data_np = []
     total_frames = 64
     total_samples_per_frame = 4096
+    crop_start = 30
+    crop_length = 25
+    filter_band = 'lowpass'
+    filter_range = [1500]
+    avg_amplitude_table = PrettyTable()
+    avg_amplitude_table.field_names = ["SL No.", "Subject Type", "Maximum Amplitude",
+                                       "Minimum Amplitude", "Average Amplitude",
+                                       "Maximum Frequency", "Minimum Frequency",
+                                       "Average Frequency"]
+    total_als = 3
+    total_normal = 3
+    spectral_peak_table_path = os.path.join(result_base_dir, "simulated_signal_pso_knn_spectral_peaks_table.html")
+
+    # ------------------------------1. DATA ACQUISITION-------------------------------------------------
+
+    # 1. Data Acquisition
 
 
+    data_np = []
     segmented_data = []
     sampling_rates = []
     plot_als = []
@@ -300,8 +313,7 @@ if __name__ == "__main__":
     # ------------------------------2. SIGNAL PREPROCESSING-------------------------------------------------
 
     cropped_data = []
-    crop_start = 30
-    crop_length = 25
+
     plot_als = []
     plot_normal = []
     for i in range(len(segmented_data)):
@@ -363,8 +375,6 @@ if __name__ == "__main__":
 
     filtered_data = []
     segmented_filtered_data = []
-    filter_band = 'lowpass'
-    filter_range = [1500]
     plot_als = []
     plot_als_b = []
     plot_normal = []
@@ -563,13 +573,7 @@ if __name__ == "__main__":
 
 
     # 1. Average Spectral Amplitude
-    avg_amplitude_table = PrettyTable()
-    avg_amplitude_table.field_names = ["SL No.", "Subject Type", "Maximum Amplitude",
-                                       "Minimum Amplitude", "Average Amplitude",
-                                       "Maximum Frequency", "Minimum Frequency",
-                                       "Average Frequency"]
-    total_als = 3
-    total_normal = 3
+
 
     avg_spectral_amplitudes = []
     segmented_avg_spectral_amplitudes = []
@@ -622,7 +626,7 @@ if __name__ == "__main__":
 
 
     print(avg_amplitude_table.get_string())
-    spectral_peak_table_path = os.path.join(result_base_dir, "simulated_signal_pso_knn_spectral_peaks_table.html")
+
     #with open(spectral_peak_table_path, 'w') as fp:
      #   fp.write(avg_amplitude_table.get_html_string())
 
@@ -672,31 +676,38 @@ if __name__ == "__main__":
 
     test_predictions = []
 
-    total_iterations = 20
+    data_size =[20, 40, 60, 80, 100, 120, 140, 160, 177]
+    total_iterations = len(data_size)
 
-    data_size = [(i+1)/total_iterations for i in range(total_iterations)]
+    #data_size = [(i+1)/total_iterations for i in range(total_iterations)]
 
     total_train_accuracy = []
     total_test_accuracy = []
-    total_specifity = []
-    total_sensitivity = []
+
+    total_tp = []
+    total_tn = []
+    total_fp = []
+    total_fn = []
+
     total_input_data = []
     total_neighbors = []
     for iter in range(total_iterations):
         print("=================Classification Iteration No. " + str(iter+1)  + "======================\n")
         feature_train_accuracy = []
         feature_test_accuracy = []
-        feature_specifity = []
-        feature_sensitivity = []
+        feature_tp = []
+        feature_tn = []
+        feature_fp = []
+        feature_fn = []
         feature_input = []
         feature_neighbor = []
         for i in range(len(classification_features)):
             print("------Feature: " + str(classification_feature_labels[i]) + "--------------")
-            feature_input.append(int(len(classification_features[i])*data_size[iter]))
+            feature_input.append(data_size[iter])
             print("Input size: " + str(feature_input[i]))
             features = np.asarray(classification_features[i])[0:feature_input[i], :]
             lab = labels[0:feature_input[i]]
-            X_train, X_test, y_train, y_test = train_test_split(features, lab, test_size=0.2,
+            X_train, X_test, y_train, y_test = train_test_split(features, lab, test_size=0.1,
                                                                 shuffle=True)
             for t in range(len(label_map)):
                 if not (t in y_test):
@@ -712,7 +723,7 @@ if __name__ == "__main__":
 
             print("Train data shape: " + str(X_train.shape))
             print("Test data shape: " + str(X_test.shape))
-            classifier_neighbor_range = [1]
+            classifier_neighbor_range = [1, 5]
 
             if len(classifier_neighbor_range) > 1:
                 pso = PSO(knn_optimize, [classifier_neighbor_range[1]], [classifier_neighbor_range[0]], fitness_minimize=False, cost_function_args=(X_train, y_train),
@@ -731,7 +742,7 @@ if __name__ == "__main__":
 
             else:
                 n_neighbors = classifier_neighbor_range[-1]
-                folds = 0.1
+                folds = 0.2
                 feature_neighbor.append(n_neighbors)
                 t_size = int(folds*len(X_train))
                 y_train = np.asarray(y_train)
@@ -756,41 +767,68 @@ if __name__ == "__main__":
             predictions = classifier.predict(X_test)
             test_predictions.append(predictions)
             acc = 0
-            specifity = 0
             total_als = 0
-            sensitivity = 0
+            tp = 0
+            tn = 0
+            fp = 0
+            fn = 0
             total_other = 0
             for a in range(len(predictions)):
                 if predictions[a] == lab[a]:
                     acc += 1
                     if predictions[a] == als_patient_label:
-                        specifity += 1
+
+                        tp += 1
+                        total_als += 1
+
                     else:
-                        sensitivity += 1
-                if lab[a] == als_patient_label:
-                    total_als += 1
+
+                        tn += 1
+                        total_other += 1
                 else:
-                    total_other += 1
-            specifity = (specifity/total_als) * 100
-            sensitivity = (sensitivity/total_other) * 100
+                    if lab[a] == als_patient_label:
+                        fn += 1
+                        total_als += 1
+
+                    else:
+                        fp += 1
+                        total_other += 1
+
+            if total_als == 0:
+                sensitivity = 0
+            else:
+                sensitivity = (tp/total_als) * 100
+            if total_other == 0:
+                specificity = 0
+            else:
+                specificity = (tn/total_other) * 100
             print('Predictions: ' + str(predictions))
             print('Target:' + str(np.asarray(list(lab))))
             print('Train Accuracy: ' + str(ta))
             print("Test Accuracy: " + "{0:.2f}".format((acc/len(predictions))*100))
-            print("Specifity: " + "{0:.2f}".format(specifity))
-            print("Sensitivity: " + "{0:.2f}".format(sensitivity))
+            print("sensitivity: " + "{0:.2f}".format(sensitivity))
+            print("specificity: " + "{0:.2f}".format(specificity))
             feature_train_accuracy.append(ta)
             feature_test_accuracy.append((acc/len(predictions))*100)
-            feature_specifity.append(specifity)
-            feature_sensitivity.append(sensitivity)
+
+            feature_tp.append(tp)
+            feature_tn.append(tn)
+            feature_fp.append(fp)
+            feature_fn.append(fn)
 
         total_train_accuracy.append(feature_train_accuracy)
         total_test_accuracy.append(feature_test_accuracy)
-        total_specifity.append(feature_specifity)
-        total_sensitivity.append(feature_sensitivity)
+
+        total_tp.append(feature_tp)
+        total_tn.append(feature_tn)
+        total_fp.append(feature_fp)
+        total_fn.append(feature_fn)
         total_input_data.append(feature_input)
         total_neighbors.append(feature_neighbor)
 
+
+
+    # ------------------------------4. PERFORMANCE ANALYSIS-------------------------------------------------
     fig_num = 8
     performance_table_path = result_base_dir + "simulated_signal_pso_knn_average_performance_graph.html"
     if os.path.exists(performance_table_path):
@@ -799,29 +837,58 @@ if __name__ == "__main__":
     else:
         performance_table = PrettyTable()
         performance_table.field_names = ["SL No.", "Classification Feature", "Average Train Accuracy(%)",
-                                         "Average Test Accuracy(%)", "Average Specifity(%)", "Average Sensitivity(%)"]
+                                         "Average Test Accuracy(%)", "Average sensitivity(%)", "Average specificity(%)"]
     for i in range(len(classification_feature_labels)):
-        plt.figure(fig_num+i)
-        plt.suptitle("Performance Graph for Classification with feature: " + str(classification_feature_labels[i].upper()))
-
+        sensitivity = np.divide(np.asarray(total_tp)[:, i], (np.asarray(total_tp)[:, i] + np.asarray(total_fn)[:, i]))
+        specificity = np.divide(np.asarray(total_tn)[:, i], (np.asarray(total_tn)[:, i] + np.asarray(total_fp)[:, i]))
+        plt.figure(fig_num + i)
+        plt.suptitle(
+            "Performance Graph for Classification with feature: " + str(classification_feature_labels[i].upper()))
+        plt.subplot(3, 2, 1)
         plt.xlabel("Input Data size[n]")
         plt.ylabel("Performance(%)")
         plt.grid()
-        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_train_accuracy)[:, i], label="Train Accuracy")
-        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_test_accuracy)[:, i], label="Test Accuracy")
-        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_specifity)[:, i], label="Specifity")
-        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_sensitivity)[:, i], label="Sensitivity")
+        plt.title("Train Accuracy")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_train_accuracy)[:, i], label="Accuracy")
         plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_neighbors)[:, i], label="Nearest Neighbors")
         plt.legend()
+        plt.subplot(3, 2, 2)
+        plt.xlabel("Input Data size[n]")
+        plt.ylabel("Performance(%)")
+        plt.grid()
+        plt.title("Test Accuracy")
+        plt.plot(np.asarray(total_input_data)[:, i], np.asarray(total_test_accuracy)[:, i])
+        plt.subplot(3, 2, 3)
+        plt.xlabel("Input Data size[n]")
+        plt.ylabel("Performance(%)")
+        plt.grid()
+        plt.title("Sensitivity")
+        plt.plot(np.asarray(total_input_data)[:, i], sensitivity)
+        plt.subplot(3, 2, 4)
+        plt.xlabel("Input Data size[n]")
+        plt.ylabel("Performance(%)")
+        plt.grid()
+        plt.title("Specificity")
+        plt.plot(np.asarray(total_input_data)[:, i], specificity)
+        plt.subplot(3, 2, 5)
+        plt.xlabel("1-Specificity")
+        plt.ylabel("Sensitivity")
+        plt.grid()
+        plt.title("ROC Curve")
 
-        performance_table.add_row([i+1, classification_feature_labels[i].upper(),
-                                   "{0:.2f}".format(np.average( np.asarray(total_train_accuracy)[:, i])),
-                                   "{0:.2f}".format(np.average( np.asarray(total_test_accuracy)[:, i])),
-                                   "{0:.2f}".format(np.average(np.asarray(total_specifity)[:, i])),
-                                   "{0:.2f}".format(np.average(np.asarray(total_sensitivity)[:, i]))
+
+        inv_specificity = 1 - specificity
+        sorted = np.argsort(inv_specificity)
+        sensitivity = sensitivity[sorted]
+        inv_specificity = inv_specificity[sorted]
+        plt.plot(inv_specificity,  sensitivity)
+
+        performance_table.add_row([i + 1, classification_feature_labels[i].upper(),
+                                   "{0:.2f}".format(np.average(np.asarray(total_train_accuracy)[:, i])),
+                                   "{0:.2f}".format(np.average(np.asarray(total_test_accuracy)[:, i])),
+                                   "{0:.2f}".format(np.average(np.asarray(total_tp)[:, i]/(np.asarray(total_tp)[:, i] + np.asarray(total_fn)[:, i]))),
+                                   "{0:.2f}".format(np.average(np.asarray(total_tn)[:, i]/(np.asarray(total_tn)[:, i] + np.asarray(total_fp)[:, i])))
                                    ])
     plt.show()
-    #with open(performance_table_path, 'w') as fp:
-        #fp.write(performance_table.get_html_string())
-
-    # ------------------------------4. PERFORMANCE-------------------------------------------------
+    # with open(performance_table_path, 'w') as fp:
+    # fp.write(performance_table.get_html_string())
