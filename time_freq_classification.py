@@ -807,7 +807,7 @@ if __name__ == "__main__":
                         tn += 1
                     else:
                         fp += 1
-            if (tp+tn) > 0:
+            if (tp+fn) > 0:
                 tpr_test.append(tp/(tp+fn))
             else:
                 tpr_test.append(0)
@@ -871,7 +871,7 @@ if __name__ == "__main__":
                         tn += 1
                     else:
                         fp += 1
-            if (tp+tn) > 0:
+            if (tp+fn) > 0:
                 tpr_val.append(tp/(tp+fn))
             else:
                 tpr_val.append(0)
