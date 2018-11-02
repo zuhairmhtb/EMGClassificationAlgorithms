@@ -197,7 +197,21 @@ def knn_optimize(x, args):
 
 if __name__ == "__main__":
     # ------------------------------PREDEFINED PARAMETERS-----------------------------------------------
-    data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+    signal_type = "simulated"
+    scale_data = True
+    suffix = "_" + signal_type
+    if scale_data:
+        suffix = suffix + "_scaled"
+    else:
+        suffix = suffix + "_unscaled"
+    if signal_type == "real":
+        data_size = [30, 60, 90, 120, 150, 170]
+    elif signal_type == "simulated":
+        data_size = [40, 50, 60, 70, 80, 90]
+    if signal_type == "real":
+        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+    elif signal_type == "simulated":
+        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
     result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
     print("LOADING DATA SET")
     raw_urls, raw_labels, label_map = get_dataset(data_base_dir, shuffle=True)
@@ -231,6 +245,7 @@ if __name__ == "__main__":
     header_filename = 'data.hea'
     print('Dataset Loaded - Total: ' + str(len(urls)) + ', Output Classes: ' + str(len(label_map)))
 
+
     output_dir = "time_freq_classification_output"
     total_frames = 64
     total_samples_per_frame = 4096
@@ -245,7 +260,8 @@ if __name__ == "__main__":
                                        "Average Frequency"]
     total_als = 3
     total_normal = 3
-    data_size = [60, 90, 120, 150]
+
+
     if len(urls) % 10 != 0:
         data_size += [len(urls)]
 
@@ -258,11 +274,32 @@ if __name__ == "__main__":
     classification_feature_labels = ["Average Spectral Amplitude", "Mean Frequency",
                                      "Zero Lag", "Zero Crossing rate"]
     classification_features = []
-    f_file = os.path.join(result_base_dir, 'features_'+classification_feature_labels[0].replace(" ", "")+".npy")
+
+
+    classification_result_path_test = os.path.join(result_base_dir, "average_performance_graph_test" + suffix + ".html")
+    classification_result_path_val = os.path.join(result_base_dir, "average_performance_graph_validation" + suffix + ".html")
+    if os.path.exists(classification_result_path_test):
+        with open(classification_result_path_test, 'r') as f:
+            classification_result_table_test = from_html_one(f.read())
+    else:
+        classification_result_table_test = PrettyTable()
+        classification_result_table_test.field_names = ["SL No.", "Feature", "Avg. Test Acc.", "Avg. Test Specificity",
+                                       "Avg. Test Sensitivity"]
+    if os.path.exists(classification_result_path_val):
+        with open(classification_result_path_val, 'r') as f:
+            classification_result_table_val = from_html_one(f.read())
+    else:
+        classification_result_table_val = PrettyTable()
+        classification_result_table_val.field_names = ["SL No.", "Feature", "Avg. Validation Acc.", "Avg. Validation Specificity",
+                                       "Avg. Validation Sensitivity"]
+
+    f_file_suffix = suffix + ".npy"
+    f_file = os.path.join(result_base_dir,
+                          'features_' + classification_feature_labels[0].replace(" ", "") + f_file_suffix)
     if os.path.exists(f_file):
         for i in range(len(classification_feature_labels)):
             classification_features.append(np.load(os.path.join(result_base_dir,
-                                                                'features_'+classification_feature_labels[i].replace(" ", "")+".npy"),
+                                        'features_'+classification_feature_labels[i].replace(" ", "")+ f_file_suffix),
                                                    allow_pickle=True))
     else:
 
@@ -700,7 +737,7 @@ if __name__ == "__main__":
         classification_features = [segmented_avg_spectral_amplitudes, mean_frequencies,
                                    zero_lag, zero_crossing]
         for i in range(len(classification_feature_labels)):
-            np.save(result_base_dir + 'features_' + str(classification_feature_labels[i]).replace(" ", ""),
+            np.save(result_base_dir + 'features_' + str(classification_feature_labels[i]).replace(" ", "")+f_file_suffix,
                     np.asarray(classification_features[i])
                     )
 
@@ -721,14 +758,16 @@ if __name__ == "__main__":
             1.3.8 Plot ROC Curve and AUC for the validation data set
             1.3.9 Store Validation Accuracy, Sensitivity and Specificity of the validation data set
         1.4 Plot Train, Test, Specificity and Sensitivity for increasing data size
-        1.5 Add Avg. Train Accuracy, Avg. Test Accuracy, Avg. Sensitivity and Avg. Specificity for increasing data set
+        1.5 Add Train Accuracy, Test Accuracy, Sensitivity and Specificity for increasing data set
             to table row
+        1.6 Add Avg Train Accuracy, Average Test Accuracy, Average Specificity, Average Sensitivity for
+            increasing data set size to performance output table    
     2. Display Table
     """
     fig_num=10
     for i in range(len(classification_feature_labels)):
         features = classification_features[i]
-
+        features = preprocessing.scale(features)
         plt.figure(fig_num+i)
         lw = 2
 
@@ -738,10 +777,12 @@ if __name__ == "__main__":
         tpr_test = []
         acc_test = []
         inpsize_test = []
+
+        inpsize_val = []
         fpr_val = []
         tpr_val = []
         acc_val = []
-        inpsize_val = []
+
         for j in range(len(data_size)):
             X = np.asarray(features)[:data_size[j], :]
             y = np.asarray(labels)[:data_size[j]]
@@ -759,7 +800,8 @@ if __name__ == "__main__":
             classifier = KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0]))
             classifier.fit(X_train, y_train)
             test_probs = classifier.predict_proba(X_test)
-            inpsize_test.append(X_test.shape[0])
+            inpsize_test.append(data_size[j])
+
 
             # Compute ROC curve and ROC area for each class of test data
             y_test_bin = np.empty((len(y_test), len(label_map)))
@@ -782,7 +824,7 @@ if __name__ == "__main__":
             roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
             plt.subplot(2, 1, 1)
             plt.title("Test data")
-            plt.plot(fpr[0], tpr[0], lw=lw, label='ROC curve (area = %0.2f)' % roc_auc[0] + ', Input Size: ' + str(len(y_train)))
+            plt.plot(fpr[0], tpr[0], lw=lw, label='ROC curve (area = %0.2f)' % roc_auc[0] + ', Input Size: ' + str(data_size[j]))
             plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
             plt.legend(loc="lower right")
             plt.xlabel('False Positive Rate(1-Specificity)')
@@ -822,7 +864,7 @@ if __name__ == "__main__":
             classifier = KNeighborsClassifier(n_neighbors=int(knn_global_best["position"][0]))
             classifier.fit(X_input, y_input)
             validate_probs = classifier.predict_proba(X_validate)
-            inpsize_val.append(X_validate.shape[0])
+            inpsize_val.append(data_size[j])
             # Compute ROC curve and ROC area for each class of validation data
             y_validate_bin = np.empty((len(y_validate), len(label_map)))
             for k in range(y_validate_bin.shape[0]):
@@ -846,7 +888,7 @@ if __name__ == "__main__":
             plt.title("Validation data")
             plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
             plt.plot(fpr[0], tpr[0], lw=lw,
-                     label='ROC curve (area = %0.2f)' % roc_auc[0] + ', Input Size: ' + str(len(y_input)))
+                     label='ROC curve (area = %0.2f)' % roc_auc[0] + ', Input Size: ' + str(data_size[j]))
 
             plt.legend(loc="lower right")
             plt.xlabel('False Positive Rate(1-Specificity)')
@@ -891,6 +933,31 @@ if __name__ == "__main__":
         plt.plot(inpsize_test, np.asarray(fpr_test)*100, label='Specificity')
         plt.grid()
         plt.legend()
+
+        #classification_result_table.field_names = ["SL No.", "Feature", "Avg. Test Acc.", "Avg. Test Specificity",
+        #                               "Avg. Test Sensitivity"]
+        sl_no = len(classification_result_table_test._rows) + 1
+        feature = classification_feature_labels[i].upper()
+        avg_test_acc = np.average(np.asarray(acc_test)*100)
+        avg_test_sensitivity = np.average(np.asarray(tpr_test)*100)
+        avg_test_specificity = np.average((1-np.asarray(fpr_test))*100)
+        classification_result_table_test.add_row([sl_no, feature, avg_test_acc, avg_test_specificity, avg_test_sensitivity])
+
+        sl_no = len(classification_result_table_val._rows) + 1
+        avg_val_acc = np.average(np.asarray(acc_val) * 100)
+        avg_val_sensitivity = np.average(np.asarray(tpr_val) * 100)
+        avg_val_specificity = np.average(np.asarray(fpr_val) * 100)
+        classification_result_table_val.add_row([sl_no, feature, avg_val_acc, avg_val_specificity, avg_val_sensitivity])
+
+    print("Test Performance: ")
+    print(classification_result_table_test.get_string())
+    with open(classification_result_path_test, 'w') as f:
+        f.write(classification_result_table_test.get_html_string())
+
+    print("Validation performance: ")
+    print(classification_result_table_val.get_string())
+    with open(classification_result_path_val, 'w') as f:
+        f.write(classification_result_table_val.get_html_string())
 
     plt.show()
 
