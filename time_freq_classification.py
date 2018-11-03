@@ -197,6 +197,45 @@ def knn_optimize(x, args):
 
 if __name__ == "__main__":
     # ------------------------------PREDEFINED PARAMETERS-----------------------------------------------
+    """
+    Predefined parameters for loading the dataset, data preprocessing, feature extraction, classification and
+    performance evaluation are set here. The parameters are:
+    
+    -------------------- A. Data Acquisition Section----------------------------------------
+    1. Signal Type: Selects whether to load the dataset of simulated or real dataset
+    2. Scale Data: Selects whether to normaliza input data to the Classifier
+    3. Suffix: The name with which numoy arrays of results(etracted features, labels, label map) will be saved
+    4. Dataset Base Directory: The root directory for the dataset.
+    5. Result Base Directory: The root directory where result outputs will be saved
+    6. URLS, Labels and Label Map: The urls of input data, labels of input data and map of the label class names
+    7. Patient Label: The class label for which performance(ROC Curve) will be evaluated.
+    
+    --------------------- B. PreProcessing Section--------------------------------------------
+    1. Data frame length: The number of frames to which the input data will be segmented.
+    2. Samples per Frame: Number of sample points per frame of input data.
+    3. Crop length: The number of frames which will be cropped.
+    4. Crop Start Position: The frame from which cropping will start.
+    5. Filter Band: The Band Type(Lowpass, Highpass, Bandpass) which will be used for filtering the data.
+    6. Filter Range: The range(Highpass and/or Lowpass) which will be used for filtering the data
+    
+    
+    ---------------------- C. Feature Extraction Section--------------------------------------
+    1. Feature Table: The table in which the output of feature extraction will be stored(Average Amplitude).
+    2. Classification Features: The features extracted for classification.
+    3. Input Features, label and label map path: The path of file where input features to the classifier will be stored.
+    
+    
+    --------------------- D. Classification Section-------------------------------------------
+    1. Input Data Sizes: The list of Input Data sizes which will be used for classification of data in each iteration.
+    2. Neighbor Range: The range of number of neighbors which will be used for Particle Swarm Optimization(PSO).
+    
+    ----------------------E. Performance Section-----------------------------------------------
+    1. Classification Test result Path: the file path where classification test performance metrics(accuracy,
+       sensitivity and specificity) will be stored.
+    2. Classification Validation result Path: the file path where classification test performance metrics(accuracy,
+       sensitivity and specificity) will be stored.   
+    
+    """
     signal_type = "simulated"
     scale_data = True
     suffix = "_" + signal_type
@@ -205,7 +244,7 @@ if __name__ == "__main__":
     else:
         suffix = suffix + "_unscaled"
     if signal_type == "real":
-        data_size = [30, 60, 90, 120, 150, 170]
+        data_size = [40, 60, 90, 120, 150, 170]
     elif signal_type == "simulated":
         data_size = [40, 50, 60, 70, 80, 90]
     if signal_type == "real":
@@ -213,8 +252,22 @@ if __name__ == "__main__":
     elif signal_type == "simulated":
         data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
     result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
+
+
     print("LOADING DATA SET")
     raw_urls, raw_labels, label_map = get_dataset(data_base_dir, shuffle=True)
+    raw_urls = list(raw_urls)
+    raw_labels = list(raw_labels)
+    if raw_labels[0] == raw_labels[1]:
+        for i in range(1, len(raw_labels)):
+            if raw_labels[i] != raw_labels[0]:
+                temp_label = raw_labels[i]
+                temp_url = raw_urls[i]
+                raw_labels[i] = raw_labels[1]
+                raw_urls[i] = raw_urls[1]
+                raw_labels[1] = temp_label
+                raw_urls[1] = temp_url
+                break
     urls = []
     labels = []
     uniform_dataset = False
@@ -274,7 +327,7 @@ if __name__ == "__main__":
     classification_feature_labels = ["Average Spectral Amplitude", "Mean Frequency",
                                      "Zero Lag", "Zero Crossing rate"]
     classification_features = []
-
+    save_features = True
 
     classification_result_path_test = os.path.join(result_base_dir, "average_performance_graph_test" + suffix + ".html")
     classification_result_path_val = os.path.join(result_base_dir, "average_performance_graph_validation" + suffix + ".html")
@@ -295,15 +348,32 @@ if __name__ == "__main__":
 
     f_file_suffix = suffix + ".npy"
     f_file = os.path.join(result_base_dir,
-                          'features_' + classification_feature_labels[0].replace(" ", "") + f_file_suffix)
-    if os.path.exists(f_file):
+                          'features_' +  f_file_suffix)
+    f_label_file = os.path.join(result_base_dir, 'label_')
+    if os.path.exists(os.path.join(result_base_dir, 'label_'+ f_file_suffix)):
         for i in range(len(classification_feature_labels)):
             classification_features.append(np.load(os.path.join(result_base_dir,
                                         'features_'+classification_feature_labels[i].replace(" ", "")+ f_file_suffix),
                                                    allow_pickle=True))
+        labels = list(np.load(os.path.join(result_base_dir,
+                                        'label_'+ f_file_suffix),
+                                                   allow_pickle=True))
+        label_map = list(np.load(os.path.join(result_base_dir,
+                                        'label_map_'+ f_file_suffix),
+                                                   allow_pickle=True))
     else:
 
         # ------------------------------1. DATA ACQUISITION-------------------------------------------------
+        """
+        This section loads raw signal data from the urls and arranges it in an array for preprocessing.
+        The steps followed are:
+        1. For each URL:
+            1.1 Load Numpy data.
+            1.2 Read Sampling rate
+            1.3 Pad/Crop raw Input data in order to make all sample data of same length.
+            1.4 Segment the data into specified number of frames where each frame contains specified number of sample points.
+            1.5 Store Segmented data, Sampling rate, Label Class and Raw Signal data.
+        """
 
         # 1. Data Acquisition
 
@@ -387,6 +457,19 @@ if __name__ == "__main__":
             plt.ylabel("Amplitude of Magnitude Spectrum")"""
 
         # ------------------------------2. SIGNAL PREPROCESSING-------------------------------------------------
+        """
+        This section preprocesses the segmented data by croppong and filtering it. The steps followed are:
+        1. For each Segmented data:
+            1.1 Crop the segmented data by keeping specified number of frames starting from specified position.
+            1.2 Store Cropped data, Sampling rate, Label Class and Segmented Signal data
+            
+        2. For each cropped data:
+            2.1 For each frame of the cropped data:
+                2.2 Butterpass Filter the frame with specified filter parameters.
+                2.3 Add back the filtered frame to filtered data list
+            2.2 Add Filtered data list to the All Filtered data list
+            
+        """
 
         cropped_data = []
 
@@ -400,7 +483,7 @@ if __name__ == "__main__":
                 plot_als = [cd, sampling_rates[i], "Neuropathy(Amyotrophic Lateral Sclerosis)", d]
             elif labels[i] != als_patient_label and len(plot_normal) == 0:
                 print("Found other")
-                plot_normal = [cd, sampling_rates[i], "Healthy Subject", d]
+                plot_normal = [cd, sampling_rates[i], "Healthy Subject", segmented_data[i]]
 
         """if len(plot_als) > 0 and len(plot_normal) > 0:
             plt.figure(2)
@@ -646,7 +729,36 @@ if __name__ == "__main__":
 
 
         # ------------------------------3. FEATURE EXTRACTION-------------------------------------------------
-
+        """
+        This section contains the code for extracting features from the preprocessed data. The Features that will be
+        extracted from each frame of each data are as follows:
+        1. Frequency Domain: Average Amplitude of the Spectral Peaks obtained from Magnitude Spectrum of the Fast
+           Fourier Transform.
+        2. Frequency Domain: Mean Frequency of the data obtained via Fast Fourier Transform.
+        3. Time Domain: Zero Lag of Autocorrelation obtained from Time series.
+        4. Time Domain: Zero Crossing rate obtained from the Time Series.
+        
+        The steps followed in feature extraction are as follows:
+        1. For each filtered data:
+            1.1 For each frame of the filtered data:
+                1.2 Calculate Spectral Peaks for each frame
+                1.3 Calculate Average Amplitude of the Spectral Peaks from each frame.
+                1.4 Add the Average Amplitude to the list of feature for each frame of the filtered data.
+            1.2 Add the List of feature of the filtered data to the list of Average Amplitude of Spectral Peaks
+                for all input data.
+        2. Add the Maximum, Minimum Amplitude of Spectral Peaks and their respective frequencies to the feature table.
+        3. For each filtered data:
+            3.1 For each frame of the filtered data:
+                3.1.1 Calculate Mean Frequency of the frame and store it to the list of mean frequency feature of the
+                    filtered data.
+                3.1.2 Calculate Zero Lag of Autocorrelation of the frame and store it to the list of Zero Lag
+                    feature of the filtered data.
+                3.1.3 Calculate Zero Crossing rate of the frame and store it to the list of Zero Crossing rate feature
+                    of the filtered data.            
+                
+        4. If Feature Save option is enabled, then save the obtained features along with their label classes and label
+           maps to a numpy array.        
+        """
 
         # 1. Average Spectral Amplitude
 
@@ -734,13 +846,26 @@ if __name__ == "__main__":
         print('Total Zero Crossing data: ' + str(len(zero_crossing)))
         print(zero_crossing)
 
+        #feature_result_paths = [result_base_dir + 'features_' + str(classification_feature_labels[i]).replace(" ",
+         #                                                                                                    "") + f_file_suffix for i in range(len(classification_feature_labels))]
+        #feature_label_paths = [result_base_dir + 'labels_' + str(classification_feature_labels[i]).replace(" ",
+         #                                                                                                    "") + f_file_suffix for i in range(len(classification_feature_labels))]
+        #label_map_path = result_base_dir + 'label_map_' + str(classification_feature_labels[i]).replace(" ",
+          #                                                                                                   "") + f_file_suffix
         classification_features = [segmented_avg_spectral_amplitudes, mean_frequencies,
                                    zero_lag, zero_crossing]
-        for i in range(len(classification_feature_labels)):
-            np.save(result_base_dir + 'features_' + str(classification_feature_labels[i]).replace(" ", "")+f_file_suffix,
-                    np.asarray(classification_features[i])
-                    )
 
+        if save_features:
+            for i in range(len(classification_feature_labels)):
+                np.save(result_base_dir + 'features_' + str(classification_feature_labels[i]).replace(" ", "")+f_file_suffix,
+                        np.asarray(classification_features[i])
+                        )
+            np.save(os.path.join(result_base_dir,
+                                        'label_'+ f_file_suffix),
+                                                       np.asarray(labels))
+            np.save(os.path.join(result_base_dir,
+                                        'label_map_'+ f_file_suffix),
+                                                       np.asarray(label_map))
     # ------------------------------3. CLASSIFICATION-------------------------------------------------
 
     """
@@ -767,7 +892,8 @@ if __name__ == "__main__":
     fig_num=10
     for i in range(len(classification_feature_labels)):
         features = classification_features[i]
-        features = preprocessing.scale(features)
+        if scale_data:
+            features = preprocessing.scale(features)
         plt.figure(fig_num+i)
         lw = 2
 
@@ -816,8 +942,9 @@ if __name__ == "__main__":
             tpr = dict()
             roc_auc = dict()
             for k in range(len(label_map)):
-                fpr[k], tpr[k], _ = roc_curve(y_test_bin[:, k], test_probs[:, k])
-                roc_auc[k] = auc(fpr[k], tpr[k])
+                if k == als_patient_label:
+                    fpr[0], tpr[0], _ = roc_curve(y_test_bin[:, k], test_probs[:, k])
+                    roc_auc[0] = auc(fpr[0], tpr[0])
 
             # Compute micro-average ROC curve and ROC area
             fpr["micro"], tpr["micro"], _ = roc_curve(y_test_bin.ravel(), test_probs.ravel())
@@ -840,12 +967,13 @@ if __name__ == "__main__":
             fn = 0
             for k in range(len(y_test)):
                 if y_test[k] == als_patient_label:
-                    if y_test[k] == np.argmax(test_probs):
+
+                    if y_test[k] == np.argmax(test_probs[k]):
                         tp += 1
                     else:
                         fn += 1
                 else:
-                    if y_test[k] == np.argmax(test_probs):
+                    if y_test[k] == np.argmax(test_probs[k]):
                         tn += 1
                     else:
                         fp += 1
@@ -857,6 +985,8 @@ if __name__ == "__main__":
                 fpr_test.append(tn/(tn+fp))
             else:
                 fpr_test.append(0)
+            #tpr_test.append(tpr[0])
+            #fpr_test.append(fpr[0])
             acc_test.append(classifier.score(X_test, y_test))
 
 
@@ -878,8 +1008,9 @@ if __name__ == "__main__":
             tpr = dict()
             roc_auc = dict()
             for k in range(len(label_map)):
-                fpr[k], tpr[k], _ = roc_curve(y_validate_bin[:, k], validate_probs[:, k])
-                roc_auc[k] = auc(fpr[k], tpr[k])
+                if k == als_patient_label:
+                    fpr[0], tpr[0], _ = roc_curve(y_validate_bin[:, k], validate_probs[:, k])
+                    roc_auc[0] = auc(fpr[0], tpr[0])
 
             # Compute micro-average ROC curve and ROC area
             fpr["micro"], tpr["micro"], _ = roc_curve(y_validate_bin.ravel(), validate_probs.ravel())
@@ -904,12 +1035,12 @@ if __name__ == "__main__":
             fn = 0
             for k in range(len(y_validate)):
                 if y_validate[k] == als_patient_label:
-                    if y_validate[k] == np.argmax(validate_probs):
+                    if y_validate[k] == np.argmax(validate_probs[k]):
                         tp += 1
                     else:
                         fn += 1
                 else:
-                    if y_validate[k] == np.argmax(validate_probs):
+                    if y_validate[k] == np.argmax(validate_probs[k]):
                         tn += 1
                     else:
                         fp += 1
@@ -921,6 +1052,8 @@ if __name__ == "__main__":
                 fpr_val.append(tn/(tn+fp))
             else:
                 fpr_val.append(0)
+            #tpr_val.append(tpr[0][-1])
+            #fpr_val.append(fpr[0][-1])
             acc_val.append(classifier.score(X_validate, y_validate))
         # Plot Validation Accuracy, Test Accuracy, Validation Specificity and Test Sensitivity
         plt.figure(fig_num+10+i)

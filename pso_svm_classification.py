@@ -172,7 +172,7 @@ if __name__ == "__main__":
     else:
         data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
         signal_type = 'Simulated'
-    result_base_dir = "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\"
+    result_base_dir = "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\pso_svm_classification_output\\"
     muscle_location = "Biceps Brachii"
     scale = False
 
@@ -195,6 +195,18 @@ if __name__ == "__main__":
     print('Labels:  '+ str(type(labels)))
     print('URLS: ' + str(type(urls)))
 
+    save_feature_data = True
+    suffix = signal_type + "_" + muscle_location + "_"
+    if scale:
+        suffix = suffix + "scaled"
+    else:
+        suffix = suffix + "unscaled"
+    feature_data_path = result_base_dir + "features_" + suffix + ".npy"
+    raw_data_path = result_base_dir + "raw_" + suffix + ".npy"
+    filtered_data_path = result_base_dir + "filtered_" + suffix + ".npy"
+    sampling_rate_data_path = result_base_dir + "sampling_rates_" + suffix + ".npy"
+
+
     # 2. Preprocess data set
     print("PREPROCESSING DATA SET")
     raw_data_np = []
@@ -202,108 +214,112 @@ if __name__ == "__main__":
     features_data = []
     sampling_rates = []
 
-    plot_data = False
-    for i in range(len(urls)):
-        # Load data as numpy array
-        d = np.load(os.path.join(urls[i], data_filename))
-        fs = read_sampling_rate(os.path.join(urls[i], header_filename))
-        label = labels[i]
-        raw_data_np.append(d)
-        sampling_rates.append(fs)
+    if not os.path.exists(feature_data_path):
+        plot_data = False
+        for i in range(len(urls)):
+            # Load data as numpy array
+            d = np.load(os.path.join(urls[i], data_filename))
+            fs = read_sampling_rate(os.path.join(urls[i], header_filename))
+            label = labels[i]
+            raw_data_np.append(d)
+            sampling_rates.append(fs)
 
-        # Filter data
-        cutoff_high = 10000 # 10 KHz
-        cutoff_low = 5 # 5 Hz
-        filter_order = 2
-        cropped_data_duration = 5000 # ms
-        cropped_data = crop_data(d, fs, cropped_data_duration)
-        print('Cropped data duration: ' + str(1000*len(cropped_data)/fs))
-        filtered = butter_bandpass_filter(cropped_data, [cutoff_low, cutoff_high], 'band', fs, order=filter_order)
-        filtered_data_np.append(filtered)
-        fs = cutoff_high
-
-
-        # Calculate DWT
-        dwt_wavelet = 'db4'
-        dwt_level = 5
-        wavelets = calculate_dwt(filtered, method=dwt_wavelet, level=dwt_level, threshold=False)
-
-        #print('Wavelets found: ' + str(len(wavelets)))
-
-        # Calculate Features from dwt
-        mean_abs_val = calculate_mav(wavelets)
-        #print('Total MAV: ' + str(len(mean_abs_val)))
-        avg_pow = calculate_avp(wavelets)
-        #print('Total AVP: ' + str(len(avg_pow)))
-        std_dev = calculate_std(wavelets)
-        #print('Total STD: ' + str(len(std_dev)))
-        ratio_abs_mean = calculate_ram(wavelets)
-        #print('Total RAM: ' + str(len(ratio_abs_mean)))
-        features = []
-        for j in range(len(wavelets)):
-            features.append(mean_abs_val[j])
-            features.append(avg_pow[j])
-            features.append(std_dev[j])
-            if j < len(wavelets)-1:
-                features.append(ratio_abs_mean[j])
-        features_data.append(features)
-        #print('Total Features extracted: ' + str(len(mean_abs_val) + len(avg_pow) + len(std_dev) + len(ratio_abs_mean)))
+            # Filter data
+            cutoff_high = 10000 # 10 KHz
+            cutoff_low = 5 # 5 Hz
+            filter_order = 2
+            cropped_data_duration = 5000 # ms
+            cropped_data = crop_data(d, fs, cropped_data_duration)
+            print('Cropped data duration: ' + str(1000*len(cropped_data)/fs))
+            filtered = butter_bandpass_filter(cropped_data, [cutoff_low, cutoff_high], 'band', fs, order=filter_order)
+            filtered_data_np.append(filtered)
+            fs = cutoff_high
 
 
-        # Plot data
-        if plot_data:
-            plt.figure(1)
-            plt.clf()
-            plt.suptitle('EMG Signal: Subject Type: ' + label_map[label])
-            plt.subplot(2, 2, 1)
-            plt.title('Raw Signal')
-            plt.plot(d)
-            plt.grid(True)
-            plt.subplots_adjust(hspace=0.5, wspace=0.5)
+            # Calculate DWT
+            dwt_wavelet = 'db4'
+            dwt_level = 5
 
-            plt.subplot(2, 2, 2)
-            plt.title('Power Spectral Density(Raw Signal)')
-            f, t, sxx = spectrogram(d, fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
-            plt.pcolormesh(t, f, sxx)
-            plt.grid(True)
-            plt.subplots_adjust(hspace=0.5, wspace=0.5)
+            wavelets = calculate_dwt(filtered, method=dwt_wavelet, level=dwt_level, threshold=False)
 
-            plt.subplot(2, 2, 3)
-            plt.title('Filtered Signal: Bandpass - ' + str(cutoff_low) + ', ' + str(cutoff_high))
-            plt.plot(filtered)
-            plt.grid(True)
-            plt.subplots_adjust(hspace=0.5, wspace=0.5)
+            #print('Wavelets found: ' + str(len(wavelets)))
 
-            plt.subplot(2, 2, 4)
-            plt.title('Power Spectral Density(Filtered Signal)')
-            f, t, sxx = spectrogram(filtered, fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
-            plt.pcolormesh(t, f, sxx)
-            plt.grid(True)
-            plt.subplots_adjust(hspace=0.5, wspace=0.5)
-
-        if plot_data:
-            plt.figure(2)
-            plt.clf()
-            plt.suptitle('Discrete Wavelet Transform')
-            t_wavelets = len(wavelets)
+            # Calculate Features from dwt
+            mean_abs_val = calculate_mav(wavelets)
+            #print('Total MAV: ' + str(len(mean_abs_val)))
+            avg_pow = calculate_avp(wavelets)
+            #print('Total AVP: ' + str(len(avg_pow)))
+            std_dev = calculate_std(wavelets)
+            #print('Total STD: ' + str(len(std_dev)))
+            ratio_abs_mean = calculate_ram(wavelets)
+            #print('Total RAM: ' + str(len(ratio_abs_mean)))
+            features = []
             for j in range(len(wavelets)):
-                plt.subplot(t_wavelets, 2, j+1)
-                plt.title('Wavelet No. ' + str(j+1))
-                plt.plot(wavelets[j])
+                features.append(mean_abs_val[j])
+                features.append(avg_pow[j])
+                features.append(std_dev[j])
+                if j < len(wavelets)-1:
+                    features.append(ratio_abs_mean[j])
+            features_data.append(features)
+            #print('Total Features extracted: ' + str(len(mean_abs_val) + len(avg_pow) + len(std_dev) + len(ratio_abs_mean)))
+
+
+            # Plot data
+            if plot_data:
+                plt.figure(1)
+                plt.clf()
+                plt.suptitle('EMG Signal: Subject Type: ' + label_map[label])
+                plt.subplot(2, 2, 1)
+                plt.title('Raw Signal')
+                plt.plot(d)
                 plt.grid(True)
                 plt.subplots_adjust(hspace=0.5, wspace=0.5)
 
-                plt.subplot(t_wavelets, 2, j+1+t_wavelets)
-                plt.title('PSD of wavelet no. ' + str(j+1))
-                f, t, sxx = spectrogram(wavelets[i], fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
+                plt.subplot(2, 2, 2)
+                plt.title('Power Spectral Density(Raw Signal)')
+                f, t, sxx = spectrogram(d, fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
                 plt.pcolormesh(t, f, sxx)
                 plt.grid(True)
                 plt.subplots_adjust(hspace=0.5, wspace=0.5)
 
-        if plot_data:
-            plt.show()
-        print('Left: ' + str(len(urls) - i))
+                plt.subplot(2, 2, 3)
+                plt.title('Filtered Signal: Bandpass - ' + str(cutoff_low) + ', ' + str(cutoff_high))
+                plt.plot(filtered)
+                plt.grid(True)
+                plt.subplots_adjust(hspace=0.5, wspace=0.5)
 
+                plt.subplot(2, 2, 4)
+                plt.title('Power Spectral Density(Filtered Signal)')
+                f, t, sxx = spectrogram(filtered, fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
+                plt.pcolormesh(t, f, sxx)
+                plt.grid(True)
+                plt.subplots_adjust(hspace=0.5, wspace=0.5)
+
+            if plot_data:
+                plt.figure(2)
+                plt.clf()
+                plt.suptitle('Discrete Wavelet Transform')
+                t_wavelets = len(wavelets)
+                for j in range(len(wavelets)):
+                    plt.subplot(t_wavelets, 2, j+1)
+                    plt.title('Wavelet No. ' + str(j+1))
+                    plt.plot(wavelets[j])
+                    plt.grid(True)
+                    plt.subplots_adjust(hspace=0.5, wspace=0.5)
+
+                    plt.subplot(t_wavelets, 2, j+1+t_wavelets)
+                    plt.title('PSD of wavelet no. ' + str(j+1))
+                    f, t, sxx = spectrogram(wavelets[i], fs, nperseg=256, return_onesided=True, mode='psd', scaling='spectrum')
+                    plt.pcolormesh(t, f, sxx)
+                    plt.grid(True)
+                    plt.subplots_adjust(hspace=0.5, wspace=0.5)
+
+            if plot_data:
+                plt.show()
+            print('Left: ' + str(len(urls) - i))
+
+    else:
+        features_data = np.load(feature_data_path)
     # Perform Classification
     measure_performance = True
     if not measure_performance:
