@@ -11,177 +11,14 @@ from prettytable import PrettyTable, from_csv, from_html_one
 from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize, LabelBinarizer
+import MyNet.emg_classification_library.dataset_functions as dfunctions
+import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
 
 
 
-# Load data from dataset
-def get_dataset(data_base_dir, shuffle=True):
-    data_type = {}
-    total = 0
-    urls = []
-    labels = []
-    label_map = []
-    for dt in os.listdir(data_base_dir):
-        dt_p = os.path.join(data_base_dir, dt)
-        if os.path.isdir(dt_p):
-            data_type[dt] = {}
-
-            for disease in os.listdir(dt_p):
-                if disease in label_map:
-                    label = label_map.index(disease)
-                else:
-                    label_map.append(disease)
-                    label = label_map.index(disease)
-
-                disease_p = os.path.join(dt_p, disease)
-                if os.path.isdir(disease_p):
-                    data_type[dt][disease] = {}
-                    for pat in os.listdir(disease_p):
-                        pat_p = os.path.join(disease_p, pat)
-                        if os.path.isdir(pat_p):
-                            data_type[dt][disease][pat] = {}
-                            for rec in os.listdir(pat_p):
-                                rec_p = os.path.join(pat_p, rec)
-                                if os.path.isdir(rec_p):
-                                    data_type[dt][disease][pat][rec] = rec_p
-                                    urls.append(rec_p)
-                                    labels.append(label)
-                                    total += 1
-
-    print(type(labels))
-    if shuffle and len(urls) > 0:
-        c = list(zip(urls, labels))
-        random.shuffle(c)
-        urls, labels = zip(*c)
-
-    return urls, labels, label_map
-
-# Extract sampling rate from header file
-def read_sampling_rate(path):
-    file = open(path, 'r')
-    content = file.read().split("\n")
-    sampling_rate = float(content[0].split(" ")[2])
-    return sampling_rate
-
-# Calculate Discrete Wavelet Transform
-def calculate_dwt(data, method='haar', thresholding='soft', level=1, threshold=True):
-
-    if  level<=1:
-        (ca, cd) = pywt.dwt(data, method)
-        if threshold:
-            cat = pywt.threshold(ca, np.std(ca) / 2, thresholding)
-            cdt = pywt.threshold(cd, np.std(cd) / 2, thresholding)
-            return cat, cdt
-        else:
-            return ca, cd
-    else:
-        decs = pywt.wavedec(data, method, level=level)
-        if threshold:
-            result=[]
-            for d in decs:
-                result.append(pywt.threshold(d, np.std(d) / 2, thresholding))
-            return result
-        else:
-            return decs
-
-def butter_bandpass(cutoff_freqs, fs, btype, order=5):
-    nyq = 0.5 * fs
-    for i in range(len(cutoff_freqs)):
-        cutoff_freqs[i] = cutoff_freqs[i] / nyq
-
-    b, a = butter(order, cutoff_freqs, btype=btype)
-    return b, a
-
-def butter_bandpass_filter(data, cutoff_freqs, btype, fs, order=5):
-    b, a = butter_bandpass(cutoff_freqs.copy(), fs, btype, order=order)
-    y = lfilter(b, a, np.copy(data))
-    return y
-
-# Calculate mean of absolute value of a list of time series
-def calculate_mav(data):
-    result = [np.mean(np.abs(data[i])) for i in range(len(data))]
-    return result
-
-# Calculate average power of a list of time series
-def calculate_avp(data):
-    result = [(1/(2*len(data[i]) + 1)) * np.sum(np.square(np.abs(data[i]))) for i in range(len(data))]
-    return result
-
-# Calculate Standard deviation of a list of time series
-def calculate_std(data):
-    result = [np.std(data[i]) for i in range(len(data))]
-    return result
-
-# Calculate Ratio of Absolute Mean Values between adjacent data of a list of time series
-def calculate_ram(data):
-    result = []
-    for i in range(len(data)-1):
-        result.append( np.abs(np.mean(data[i]))/np.abs(np.mean(data[i+1]))  )
-    return result
-
-# Crop a signal by duration(ms)
-def crop_data(data, fs, crop_duration):
-    """
-
-    :param data: The signal that needs to be cropped (Array like)
-    :param fs: Sampling rate of the signal (float)
-    :param crop_duration: The amount of duration that needs to be kept (ms) float
-    :return: Cropped Signal (Array like)
-    """
-    keep_length = int(fs*crop_duration/1000)
-    if keep_length < len(data):
-        crop_length = len(data) - keep_length
-        crop_start = int(crop_length/2)
-        crop_end = crop_length - crop_start
-        return data[crop_start:len(data)-crop_end]
-    return data
-
-# Calculate Peaks from Magnitude Spectrum/FFT Magnitude of a data
-def calculate_spectral_peak(data, thresh=None):
-    fourier = np.fft.fft(data)
-    fourier = abs(fourier[0:len(data) // 2])
-
-    if thresh is None:
-        peaks, props = find_peaks(fourier, height=np.mean(fourier))
-        return fourier, peaks
-    else:
-        peaks, props = find_peaks(fourier, height=thresh)
-        return fourier, peaks
-
-# Calculate Average Spectral Amplitude from FFT of a data
-def calculate_avg_spectral_amplitude(data, thresh=None):
-    fourier, peaks = calculate_spectral_peak(data, thresh)
-    return np.average(fourier[peaks])
 
 
 
-# Calculate mean frequency from a signal
-def calculate_mean_frequency(data, fs):
-    fourier = np.fft.fft(data)
-    fourier = abs(fourier[0:len(data) // 2])
-    freqs = np.fft.fftfreq(len(data), 1/fs)[0:len(data) // 2]
-    return np.sum(fourier*freqs)/np.sum(fourier)
-
-# Calculate autocorrelation of a signal
-def calculate_autocorrelation(data):
-    result = np.correlate(data, data, mode='full')
-    return result
-# Calculate zero lag value of autocorrelation of a data
-def calculate_zero_lag_autocorrelation(data):
-    # Remove sample mean.
-    xdm = np.asarray(data) - np.mean(data)
-    autocorr_xdm = np.correlate(xdm, xdm, mode='full')
-    return autocorr_xdm[int(len(data)/2) - 1]
-# Calculate Zero Crossing Rate
-def calculate_zero_crossing_rate(data):
-    signs = []
-    for i in range(1, len(data)):
-        if data[i] >= 0:
-            signs.append(1)
-        else:
-            signs.append(-1)
-    vals = [np.abs(signs[i] - signs[i-1]) for i in range(1, len(signs))]
-    return (1/(2*len(data))) * np.sum(vals)
 
 def knn_optimize(x, args):
     classifier = KNeighborsClassifier(n_neighbors=int(x[0]))
@@ -255,7 +92,7 @@ if __name__ == "__main__":
 
 
     print("LOADING DATA SET")
-    raw_urls, raw_labels, label_map = get_dataset(data_base_dir, shuffle=True)
+    raw_urls, raw_labels, label_map = dfunctions.get_dataset(data_base_dir, shuffle=True)
     raw_urls = list(raw_urls)
     raw_labels = list(raw_labels)
     if raw_labels[0] == raw_labels[1]:
@@ -297,6 +134,8 @@ if __name__ == "__main__":
     data_filename = 'data.npy'
     header_filename = 'data.hea'
     print('Dataset Loaded - Total: ' + str(len(urls)) + ', Output Classes: ' + str(len(label_map)))
+    if len(urls) % 10 != 0:
+        data_size += [len(urls)]
 
 
     output_dir = "time_freq_classification_output"
@@ -315,8 +154,7 @@ if __name__ == "__main__":
     total_normal = 3
 
 
-    if len(urls) % 10 != 0:
-        data_size += [len(urls)]
+
 
     total_iterations = len(data_size)
     classifier_neighbor_range = [1, 5]
@@ -350,6 +188,19 @@ if __name__ == "__main__":
     f_file = os.path.join(result_base_dir,
                           'features_' +  f_file_suffix)
     f_label_file = os.path.join(result_base_dir, 'label_')
+
+    # ------------------------------1. DATA ACQUISITION-------------------------------------------------
+    """
+    This section loads raw signal data from the urls and arranges it in an array for preprocessing.
+    The steps followed are:
+    1. For each URL:
+        1.1 Load Numpy data.
+        1.2 Read Sampling rate
+        1.3 Pad/Crop raw Input data in order to make all sample data of same length.
+        1.4 Segment the data into specified number of frames where each frame contains specified number of sample points.
+        1.5 Store Segmented data, Sampling rate, Label Class and Raw Signal data.
+    """
+
     if os.path.exists(os.path.join(result_base_dir, 'label_'+ f_file_suffix)):
         for i in range(len(classification_feature_labels)):
             classification_features.append(np.load(os.path.join(result_base_dir,
@@ -363,21 +214,6 @@ if __name__ == "__main__":
                                                    allow_pickle=True))
     else:
 
-        # ------------------------------1. DATA ACQUISITION-------------------------------------------------
-        """
-        This section loads raw signal data from the urls and arranges it in an array for preprocessing.
-        The steps followed are:
-        1. For each URL:
-            1.1 Load Numpy data.
-            1.2 Read Sampling rate
-            1.3 Pad/Crop raw Input data in order to make all sample data of same length.
-            1.4 Segment the data into specified number of frames where each frame contains specified number of sample points.
-            1.5 Store Segmented data, Sampling rate, Label Class and Raw Signal data.
-        """
-
-        # 1. Data Acquisition
-
-
         data_np = []
         segmented_data = []
         sampling_rates = []
@@ -385,7 +221,7 @@ if __name__ == "__main__":
         plot_normal = []
         for i in range(len(urls)):
             d = np.load(os.path.join(urls[i], data_filename))
-            fs = read_sampling_rate(os.path.join(urls[i], header_filename))
+            fs = dfunctions.read_sampling_rate(os.path.join(urls[i], header_filename))
             sampling_rates.append(fs)
 
             # Adjust From both end: Crop data if the total number of sample is larger than expected sample and add zero otherwise
@@ -465,8 +301,8 @@ if __name__ == "__main__":
             
         2. For each cropped data:
             2.1 For each frame of the cropped data:
-                2.2 Butterpass Filter the frame with specified filter parameters.
-                2.3 Add back the filtered frame to filtered data list
+                2.1.1 Butterpass Filter the frame with specified filter parameters.
+                2.1.2 Add back the filtered frame to filtered data list
             2.2 Add Filtered data list to the All Filtered data list
             
         """
@@ -543,9 +379,9 @@ if __name__ == "__main__":
             segmented_signal = []
             for j in range(len(cropped_data[i])):
                 signal = signal + list(cropped_data[i][j])
-                segmented_signal.append(butter_bandpass_filter(cropped_data[i][j],
+                segmented_signal.append(sfunctions.butter_bandpass_filter(cropped_data[i][j],
                                         filter_range, filter_band, sampling_rates[i], order=2))
-            fd = butter_bandpass_filter(np.asarray(signal), filter_range, filter_band, sampling_rates[i], order=2)
+            fd = sfunctions.butter_bandpass_filter(np.asarray(signal), filter_range, filter_band, sampling_rates[i], order=2)
             sfd = [fd[i:i + total_samples_per_frame] for i in range(0, fd.shape[0], total_samples_per_frame)]
             filtered_data.append(sfd)
             segmented_filtered_data.append(segmented_signal)
@@ -695,7 +531,7 @@ if __name__ == "__main__":
                     for k in range(random_frames):
                         fourier = np.fft.fft(collected_data[i][j][segments[k]])
                         freqs = np.fft.fftfreq(len(collected_data[i][j][segments[k]]), 1 / filter_range[-1])
-                        autocorrelation = calculate_autocorrelation(collected_data[i][j][segments[k]])
+                        autocorrelation = sfunctions.calculate_autocorrelation(collected_data[i][j][segments[k]])
     
                         plt.figure(5)
                         plt.subplot(2, random_frames, current)
@@ -741,9 +577,9 @@ if __name__ == "__main__":
         The steps followed in feature extraction are as follows:
         1. For each filtered data:
             1.1 For each frame of the filtered data:
-                1.2 Calculate Spectral Peaks for each frame
-                1.3 Calculate Average Amplitude of the Spectral Peaks from each frame.
-                1.4 Add the Average Amplitude to the list of feature for each frame of the filtered data.
+                1.1.1 Calculate Spectral Peaks for each frame
+                1.1.2 Calculate Average Amplitude of the Spectral Peaks from each frame.
+                1.1.3 Add the Average Amplitude to the list of feature for each frame of the filtered data.
             1.2 Add the List of feature of the filtered data to the list of Average Amplitude of Spectral Peaks
                 for all input data.
         2. Add the Maximum, Minimum Amplitude of Spectral Peaks and their respective frequencies to the feature table.
@@ -778,7 +614,7 @@ if __name__ == "__main__":
             total = 0
             segmented_amps = []
             for j in range(len(segmented_filtered_data[i])):
-                fourier, peaks = calculate_spectral_peak(segmented_filtered_data[i][j])
+                fourier, peaks = sfunctions.calculate_spectral_peak(segmented_filtered_data[i][j])
                 freqs = np.fft.fftfreq(len(segmented_filtered_data[i][j]), 1/filter_range[-1])
                 freqs = freqs[0:len(freqs) // 2]
 
@@ -829,9 +665,9 @@ if __name__ == "__main__":
             zl = []
             zc = []
             for j in range(len(d)):
-                mf.append(calculate_mean_frequency(d[j], sampling_rates[i]))
-                zl.append(calculate_zero_lag_autocorrelation(d[j]))
-                zc.append(calculate_zero_crossing_rate(d[j]))
+                mf.append(sfunctions.calculate_mean_frequency(d[j], sampling_rates[i]))
+                zl.append(sfunctions.calculate_zero_lag_autocorrelation(d[j]))
+                zc.append(sfunctions.calculate_zero_crossing_rate(d[j]))
             mean_frequencies.append(mf)
             zero_lag.append(zl)
             zero_crossing.append(zc)

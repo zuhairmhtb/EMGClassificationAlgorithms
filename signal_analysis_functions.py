@@ -3,14 +3,15 @@ from python_speech_features import mfcc
 from scipy.ndimage.morphology import generate_binary_structure, binary_erosion
 from scipy.ndimage.filters import maximum_filter
 from skimage.feature import peak_local_max
-from scipy.signal import spectrogram, find_peaks
+from scipy.signal import spectrogram, find_peaks, butter, lfilter
+import pywt
 import matplotlib.pyplot as plt
 """
 Available Time Domain functions:
 1. Mean Absolute Deviation (MAD/MAV)
 2. Root Mean Square(RMS)
 3. Absolute Value(AV)
-4. Standard Deviation(SD)
+4. Standard Deviation(STD)
 5. Variance(VR)
 6. Approximate Entropy(AE)
 7. Average Amplitude Change(AAC)
@@ -27,6 +28,13 @@ Available Time Domain functions:
 18. Slope of Mean Absolute Value(SMAV)
 19. Entropy(Ent)
 20. Zero Crossing Rate(ZCR)
+21. Discrete Wavelet Transform(DWT)
+22. Butterworth Filter(Butterpass)
+23. Average Power(AVP)
+24. Ratio of Absolute Mean Value(RAM)
+25. Crop data
+26. Autocorrelation Coefficients
+27. Zero Lag of Autocorrelation
 """
 """
 Available Frequency Domain Features:
@@ -39,18 +47,22 @@ Available Frequency Domain Features:
 7. Total Power(TOP)
 8. Variance of Central Frequency(VCF)
 9. Number of Peaks(NPF)
+10. Spectral Peak(SP)
+11. Average Spectral Amplitude(ASA)
 """
-def calculate_mav(signal):
-    mean = np.mean(signal)
-    deviation = np.abs(np.asarray(signal) - mean)
-    mad = np.sum(deviation) / len(deviation)
-    return mad
+# Calculate mean of absolute value of a list of time series
+def calculate_mav(data):
+    result = [np.mean(np.abs(data[i])) for i in range(len(data))]
+    return result
+
 def calculate_rms(signal):
     return np.sqrt(np.mean(np.asarray(signal)**2))
 def calculate_av(signal):
     return np.abs(signal)
-def calculate_std(signal):
-    return np.std(signal)
+# Calculate Standard deviation of a list of time series
+def calculate_std(data):
+    result = [np.std(data[i]) for i in range(len(data))]
+    return result
 def calculate_variance(signal):
     return np.var(signal)
 def calculate_wl(fs):
@@ -102,20 +114,24 @@ def calculate_ent(x, modified=False):
             ent += (quo * np.log10(quo))
     return -ent
 
-def calculate_zcr(x):
-    sum = 0
-    for i in range(1, x.shape[0]):
-        if x[i] * x[i - 1] < 0:
-            sum += 1
-    return sum / (x.shape[0] - 1)
+# Calculate Zero Crossing Rate
+def calculate_zero_crossing_rate(data):
+    signs = []
+    for i in range(1, len(data)):
+        if data[i] >= 0:
+            signs.append(1)
+        else:
+            signs.append(-1)
+    vals = [np.abs(signs[i] - signs[i-1]) for i in range(1, len(signs))]
+    return (1/(2*len(data))) * np.sum(vals)
 
-def calculate_mnf(intensity, frequency):
-    sum = 0
-    sum_intensity = 0
-    for i in range(len(frequency)):
-        sum += frequency[i] * intensity[i]
-        sum_intensity += intensity[i]
-    return sum / sum_intensity
+# Calculate mean frequency from a signal
+def calculate_mean_frequency(data, fs):
+    fourier = np.fft.fft(data)
+    fourier = abs(fourier[0:len(data) // 2])
+    freqs = np.fft.fftfreq(len(data), 1/fs)[0:len(data) // 2]
+    return np.sum(fourier*freqs)/np.sum(fourier)
+
 def calculate_mdf(intensity, frequency):
     sorted = np.argsort(intensity)
     sorted_intensity = np.asarray(intensity)[sorted]
@@ -199,4 +215,93 @@ def calculate_npf(power, min_height, min_distance):
 
 
     return peaks, dp
+
+# Calculate Discrete Wavelet Transform
+def calculate_dwt(data, method='haar', thresholding='soft', level=1, threshold=True):
+
+    if  level<=1:
+        (ca, cd) = pywt.dwt(data, method)
+        if threshold:
+            cat = pywt.threshold(ca, np.std(ca) / 2, thresholding)
+            cdt = pywt.threshold(cd, np.std(cd) / 2, thresholding)
+            return cat, cdt
+        else:
+            return ca, cd
+    else:
+        decs = pywt.wavedec(data, method, level=level)
+        if threshold:
+            result=[]
+            for d in decs:
+                result.append(pywt.threshold(d, np.std(d) / 2, thresholding))
+            return result
+        else:
+            return decs
+
+def butter_bandpass(cutoff_freqs, fs, btype, order=5):
+    nyq = 0.5 * fs
+    for i in range(len(cutoff_freqs)):
+        cutoff_freqs[i] = cutoff_freqs[i] / nyq
+
+    b, a = butter(order, cutoff_freqs, btype=btype)
+    return b, a
+
+def butter_bandpass_filter(data, cutoff_freqs, btype, fs, order=5):
+    b, a = butter_bandpass(cutoff_freqs.copy(), fs, btype, order=order)
+    y = lfilter(b, a, np.copy(data))
+    return y
+# Calculate average power of a list of time series
+def calculate_avp(data):
+    result = [(1/(2*len(data[i]) + 1)) * np.sum(np.square(np.abs(data[i]))) for i in range(len(data))]
+    return result
+# Calculate Ratio of Absolute Mean Values between adjacent data of a list of time series
+def calculate_ram(data):
+    result = []
+    for i in range(len(data)-1):
+        result.append( np.abs(np.mean(data[i]))/np.abs(np.mean(data[i+1]))  )
+    return result
+# Crop a signal by duration(ms)
+def crop_data(data, fs, crop_duration):
+    """
+
+    :param data: The signal that needs to be cropped (Array like)
+    :param fs: Sampling rate of the signal (float)
+    :param crop_duration: The amount of duration that needs to be kept (ms) float
+    :return: Cropped Signal (Array like)
+    """
+    keep_length = int(fs*crop_duration/1000)
+    if keep_length < len(data):
+        crop_length = len(data) - keep_length
+        crop_start = int(crop_length/2)
+        crop_end = crop_length - crop_start
+        return data[crop_start:len(data)-crop_end]
+    return data
+
+# Calculate Peaks from Magnitude Spectrum/FFT Magnitude of a data
+def calculate_spectral_peak(data, thresh=None):
+    fourier = np.fft.fft(data)
+    fourier = abs(fourier[0:len(data) // 2])
+
+    if thresh is None:
+        peaks, props = find_peaks(fourier, height=np.mean(fourier))
+        return fourier, peaks
+    else:
+        peaks, props = find_peaks(fourier, height=thresh)
+        return fourier, peaks
+
+# Calculate Average Spectral Amplitude from FFT of a data
+def calculate_avg_spectral_amplitude(data, thresh=None):
+    fourier, peaks = calculate_spectral_peak(data, thresh)
+    return np.average(fourier[peaks])
+
+# Calculate autocorrelation of a signal
+def calculate_autocorrelation(data):
+    result = np.correlate(data, data, mode='full')
+    return result
+# Calculate zero lag value of autocorrelation of a data
+def calculate_zero_lag_autocorrelation(data):
+    # Remove sample mean.
+    xdm = np.asarray(data) - np.mean(data)
+    autocorr_xdm = np.correlate(xdm, xdm, mode='full')
+    return autocorr_xdm[int(len(data)/2) - 1]
+
 dir = "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\train\\als\\a01_patient\\N2001A01BB02\\"
