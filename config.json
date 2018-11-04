@@ -1,0 +1,226 @@
+{
+  "dataset":
+  {
+    "base_dir": {
+      "real": {
+        "value": "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\"
+      },
+      "simulated": {
+        "value": "D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\"
+      }
+
+    },
+    "result_dir": {
+      "value": "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\"
+    },
+    "test_dir": {
+      "value": "test"
+    },
+    "train_dir": {
+      "value": "train"
+    },
+    "signal_type":{
+      "value": ["real", "simulated"]
+    },
+    "muscle_location":{
+      "value": "Biceps Brachii"
+    },
+    "patient_directories": {
+      "value": ["als", "neuropathy"]
+    },
+    "uniform_dataset_size": {
+      "value": 50
+    },
+    "input_size_increase_range":{
+      "value": 10
+    }
+  },
+
+  "particle_swarm_optimization": {
+    "max_iterations": {
+      "value": 100
+    },
+    "swarm_size": {
+      "value": 50
+    },
+    "inertia_coefficient": {
+      "value": 1
+    },
+    "inertia_damp": {
+      "value": 0.99
+    },
+    "personal_coefficient": {
+      "value": 2
+    },
+    "global_coefficient": {
+      "value": 2
+    },
+    "kappa": {
+      "value": 1
+    },
+    "phi_one": {
+      "value": 2.05
+    },
+    "phi_two": {
+      "value": 2.05
+    }
+  },
+
+  "pso_svm_classification":
+  {
+    "preprocessing":{
+
+      "cropping": {
+        "cropped_data_duration": 5000
+      },
+      "filtering": {
+        "cut_off_high": {
+          "value": 10000
+        },
+        "cut_off_low": {
+          "value": 5
+        },
+        "filter_order":{
+          "value": 2
+        }
+      },
+      "dwt": {
+        "wavelet":{
+          "value": "db4"
+        },
+        "level": {
+          "value": 5
+        }
+      }
+
+    }
+
+  },
+
+  "time_freq_classification": {
+
+    "preprocessing": {
+
+      "segmentation": {
+
+        "total_frames": {
+          "value": 64
+        },
+        "samples_per_frame": {
+          "value": 4096
+        }
+
+      },
+      "cropping": {
+        "crop_start_frame": {
+          "value": 30
+        },
+        "crop_length": {
+          "value": 25
+        }
+      },
+      "filtering": {
+        "pass_type": {
+          "value": "lowpass"
+        },
+        "pass_range": {
+          "value": [1500]
+        }
+      }
+
+    },
+    "feature_extraction": {
+      "avg_amplitude_table_fields": {
+        "value": ["SL No.", "Subject Type", "Maximum Amplitude",
+                                       "Minimum Amplitude", "Average Amplitude",
+                                       "Maximum Frequency", "Minimum Frequency",
+                                       "Average Frequency"]
+      },
+      "spectral_peak_output_file": {
+        "value": "pso_knn_spectral_peaks_table.html"
+      }
+    },
+    "classification": {
+      "input_feature_labels": {
+        "value": ["Average Spectral Amplitude", "Mean Frequency", "Zero Lag", "Zero Crossing rate"]
+      },
+      "input_feature_file": {
+        "value": "features_"
+      },
+      "input_label_file": {
+        "value": "label_"
+      },
+      "label_map_file": {
+        "value": "label_map_"
+      },
+      "nearest_neighbor": {
+        "n_neighbors": {
+          "value": [1, 5]
+        }
+      }
+    },
+    "performance": {
+      "test": {
+        "performance_graph_file":{
+          "value": "average_performance_graph_test"
+        },
+        "performance_result_table_fields": {
+          "value": ["SL No.", "Feature", "Avg. Test Acc.", "Avg. Test Specificity",
+                                       "Avg. Test Sensitivity"]
+        }
+      },
+      "validation": {
+        "performance_graph_file":{
+          "value": "average_performance_graph_validation"
+        },
+        "performance_result_table_fields": {
+          "value": ["SL No.", "Feature", "Avg. Validation Acc.", "Avg. Validation Specificity",
+                                       "Avg. Validation Sensitivity"]
+        }
+      }
+    }
+  },
+  "misc": {
+      "scale_classification_input": {
+        "value": "False"
+      },
+      "data_filename": {
+        "value": "data.npy"
+      },
+      "header_filename": {
+        "value": "data.hea"
+      },
+      "total_als_visualize": {
+        "value": 3
+      },
+      "total_healthy_visualize": {
+        "value": 3
+      },
+      "total_random_frames_visualize": {
+        "value": 5
+      },
+      "save_created_feature_table": {
+        "value": "True"
+      },
+      "als_plot_label": {
+        "value": "Neuropathy(Amyotrophic Lateral Sclerosis)"
+      },
+      "healthy_plot_label": {
+        "value": "Healthy Subject"
+      },
+      "plot": {
+        "data_acquisition": {
+          "value": "False"
+        },
+        "data_preprocessing": {
+          "value": "False"
+        },
+        "feature_classification": {
+          "value": "True"
+        },
+        "classifier_performance": {
+          "value": "True"
+        }
+      }
+    }
+}

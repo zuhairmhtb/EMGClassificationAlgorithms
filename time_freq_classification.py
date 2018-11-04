@@ -73,7 +73,7 @@ if __name__ == "__main__":
        sensitivity and specificity) will be stored.   
     
     """
-    signal_type = "simulated"
+    signal_type = "real"
     scale_data = True
     suffix = "_" + signal_type
     if scale_data:
@@ -702,26 +702,26 @@ if __name__ == "__main__":
             np.save(os.path.join(result_base_dir,
                                         'label_map_'+ f_file_suffix),
                                                        np.asarray(label_map))
-    # ------------------------------3. CLASSIFICATION-------------------------------------------------
+    # ------------------------------4. CLASSIFICATION-------------------------------------------------
 
     """
     Steps of Classification:
     1. For each feature:
         1.1 Create Figure to plot performance
-        1.3 For each data set size:
-            1.3.1 Split Train and Validation data set based on 10 fold Corss validation
-            1.3.2 Split Train and Test data set based on 10 fold cross validation
-            1.3.3 Optimize Classifier using the Train and Test data set
-            1.3.4 Classify using Test data set
-            1.3.5 Plot ROC Curve and AUC for the test data set
-            1.3.6 Store Test Accuracy, Specificity and Sensitivity
-            1.3.7 Classify using the validation data set
-            1.3.8 Plot ROC Curve and AUC for the validation data set
-            1.3.9 Store Validation Accuracy, Sensitivity and Specificity of the validation data set
-        1.4 Plot Train, Test, Specificity and Sensitivity for increasing data size
-        1.5 Add Train Accuracy, Test Accuracy, Sensitivity and Specificity for increasing data set
+        1.2 For each data set size:
+            1.2.1 Split Train and Validation data set based on 10 fold Corss validation
+            1.2.2 Split Train and Test data set based on 10 fold cross validation
+            1.2.3 Optimize Classifier using the Train and Test data set
+            1.2.4 Classify using Test data set
+            1.2.5 Plot ROC Curve and AUC for the test data set
+            1.2.6 Store Test Accuracy, Specificity and Sensitivity
+            1.2.7 Classify using the validation data set
+            1.2.8 Plot ROC Curve and AUC for the validation data set
+            1.2.9 Store Validation Accuracy, Sensitivity and Specificity of the validation data set
+        1.3 Plot Train, Test, Specificity and Sensitivity for increasing data size
+        1.4 Add Train Accuracy, Test Accuracy, Sensitivity and Specificity for increasing data set
             to table row
-        1.6 Add Avg Train Accuracy, Average Test Accuracy, Average Specificity, Average Sensitivity for
+        1.5 Add Avg Train Accuracy, Average Test Accuracy, Average Specificity, Average Sensitivity for
             increasing data set size to performance output table    
     2. Display Table
     """
@@ -901,7 +901,7 @@ if __name__ == "__main__":
         plt.plot(inpsize_test, np.asarray(tpr_test)*100, label='Sensitivity')
         plt.plot(inpsize_test, np.asarray(fpr_test)*100, label='Specificity')
         plt.grid()
-        plt.legend()
+        plt.legend(loc='upper left')
 
         #classification_result_table.field_names = ["SL No.", "Feature", "Avg. Test Acc.", "Avg. Test Specificity",
         #                               "Avg. Test Sensitivity"]

@@ -55,6 +55,9 @@ def calculate_mav(data):
     result = [np.mean(np.abs(data[i])) for i in range(len(data))]
     return result
 
+def calculate_mav_single(data):
+    return np.mean(np.abs(data))
+
 def calculate_rms(signal):
     return np.sqrt(np.mean(np.asarray(signal)**2))
 def calculate_av(signal):
@@ -63,6 +66,8 @@ def calculate_av(signal):
 def calculate_std(data):
     result = [np.std(data[i]) for i in range(len(data))]
     return result
+def calculate_std_single(data):
+    return np.std(data)
 def calculate_variance(signal):
     return np.var(signal)
 def calculate_wl(fs):
@@ -253,12 +258,17 @@ def butter_bandpass_filter(data, cutoff_freqs, btype, fs, order=5):
 def calculate_avp(data):
     result = [(1/(2*len(data[i]) + 1)) * np.sum(np.square(np.abs(data[i]))) for i in range(len(data))]
     return result
+def calculate_avp_single(data):
+    return (1/(2*len(data) + 1)) * np.sum(np.square(np.abs(data)))
+
 # Calculate Ratio of Absolute Mean Values between adjacent data of a list of time series
 def calculate_ram(data):
     result = []
     for i in range(len(data)-1):
         result.append( np.abs(np.mean(data[i]))/np.abs(np.mean(data[i+1]))  )
     return result
+def calculate_ram_single(current_data, next_data):
+    return np.abs(np.mean(current_data))/np.abs(np.mean(next_data))
 # Crop a signal by duration(ms)
 def crop_data(data, fs, crop_duration):
     """
