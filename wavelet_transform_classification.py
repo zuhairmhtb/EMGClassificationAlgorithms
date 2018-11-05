@@ -73,8 +73,8 @@ def svmrbf_optimize(x, args):
 
 # Create, Optimize and return a SVM classifier with RBF Kernel and optimized using PSO
 def getSVMRBF(X_input, y_input):
-    penalty_param_range = [0.1, 1]
-    gamma_param_range = [0.0001, 1]
+    penalty_param_range = [0.01, 10000]
+    gamma_param_range = [0.0001, 10]
     pso = PSO(svmrbf_optimize, [penalty_param_range[1], gamma_param_range[1]], [penalty_param_range[0], gamma_param_range[0]],
               fitness_minimize=False, cost_function_args=(X_input, y_input),
               verbose=False, ndview=False, max_iteration=50)
@@ -194,7 +194,6 @@ if __name__ == "__main__":
         labels = raw_labels
 
 
-
     data_filename = 'data.npy'
     header_filename = 'data.hea'
     print('Dataset Loaded - Total: ' + str(len(urls)) + ', Output Classes: ' + str(len(label_map)))
@@ -202,6 +201,7 @@ if __name__ == "__main__":
 
     if len(urls) % 10 != 0:
         data_size += [len(urls)]
+
 
     cropped_signal_duration = 5000 #ms
 
@@ -216,8 +216,8 @@ if __name__ == "__main__":
 
     classification_feature_labels = ["Mean of Absolute Value", "Average Power",
                                      "Standard Deviation", "Ratio of Absolute Mean Value"]
-    classifier_names = ["SVM(RBF)", "SVM(POLY)", "KNN", "RFA"]
-    classifier_objects = [getSVMRBF, getSVMPOL, getKNN, getRFA]
+    classifier_names = ["SVM(RBF)", "SVM(POLY)", "KNN"]
+    classifier_objects = [getSVMRBF, getSVMPOL, getKNN]
     classification_feature_functions = [
         sfunctions.calculate_mav_single,
         sfunctions.calculate_avp_single,
@@ -445,7 +445,7 @@ if __name__ == "__main__":
     fig_num=10
     lw = 2
     classification_verbose = True
-    classification_plot = False
+    classification_plot = True
     # Create Input Vectors for the classifiers
     features = np.asarray(input_features)
     if scale_data:
@@ -536,7 +536,7 @@ if __name__ == "__main__":
             fpr["micro"], tpr["micro"], _ = roc_curve(y_test_bin.ravel(), test_probs.ravel())
             roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
 
-            if classification_verbose:
+            if classification_plot:
                 # Plot ROC Curve for test data classification performance
                 plt.subplot(2, 1, 1)
                 plt.title("Test data")
@@ -611,7 +611,7 @@ if __name__ == "__main__":
             # Compute micro-average ROC curve and ROC area
             fpr["micro"], tpr["micro"], _ = roc_curve(y_validate_bin.ravel(), val_probs.ravel())
             roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
-            if classification_verbose:
+            if classification_plot:
                 plt.subplot(2, 1, 2)
                 plt.title("Validation data")
                 plt.plot(fpr[0], tpr[0], lw=lw,
@@ -652,8 +652,7 @@ if __name__ == "__main__":
             # tpr_test.append(tpr[0])
             # fpr_test.append(fpr[0])
             acc_val.append(classifier.score(X_validate, y_validate))
-        if classification_verbose:
-            plt.show()
+        if classification_plot:
 
             # Plot Validation Accuracy, Test Accuracy, Validation Specificity and Test Sensitivity
             plt.figure(fig_num + 10 + i)
@@ -670,21 +669,23 @@ if __name__ == "__main__":
         # classification_result_table.field_names = ["SL No.", "Feature", "Avg. Test Acc.", "Avg. Test Specificity",
         #                               "Avg. Test Sensitivity"]
         sl_no = len(classification_result_table_test._rows) + 1
-        feature = classification_feature_labels[i].upper()
+        clf = classifier_names[i].upper()
         avg_test_acc = np.average(np.asarray(acc_test) * 100)
         avg_test_sensitivity = np.average(np.asarray(tpr_test) * 100)
         avg_test_specificity = np.average((1 - np.asarray(fpr_test)) * 100)
         classification_result_table_test.add_row(
-            [sl_no, feature, avg_test_acc, avg_test_specificity, avg_test_sensitivity])
+            [sl_no, clf, avg_test_acc, avg_test_specificity, avg_test_sensitivity])
 
         sl_no = len(classification_result_table_val._rows) + 1
         avg_val_acc = np.average(np.asarray(acc_val) * 100)
         avg_val_sensitivity = np.average(np.asarray(tpr_val) * 100)
         avg_val_specificity = np.average(np.asarray(fpr_val) * 100)
-        classification_result_table_val.add_row([sl_no, feature, avg_val_acc, avg_val_specificity, avg_val_sensitivity])
+        classification_result_table_val.add_row([sl_no, clf, avg_val_acc, avg_val_specificity, avg_val_sensitivity])
 
     if classification_verbose:
         print("....Classification Performance: Test")
-        print(classification_result_table_test.get_html_string())
+        print(classification_result_table_test.get_string())
         print("....Classification Performance: Validation")
-        print(classification_result_table_val.get_html_string())
+        print(classification_result_table_val.get_string())
+    if classification_plot:
+        plt.show()
