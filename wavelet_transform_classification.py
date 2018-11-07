@@ -136,7 +136,7 @@ if __name__ == "__main__":
     3. Input Features, label and label map path: The path of file where input features to the classifier will be stored.
     
     """
-    signal_type = "real"
+    signal_type = "simulated"
     scale_data = True
     suffix = "_" + signal_type
     if scale_data:
@@ -487,6 +487,8 @@ if __name__ == "__main__":
                 print("....Label Size: " + str(y.shape))
             # Split train and validation data set
             X_input, X_validate, y_input, y_validate = train_test_split(X, y, test_size=0.1, shuffle=True)
+            while len(collections.Counter(list(y_input))) <= 1:
+                X_input, X_validate, y_input, y_validate = train_test_split(X, y, test_size=0.1, shuffle=True)
             if classification_verbose:
                 print("....Train & Validation data split")
                 print("........Train data size: " + str(X_input.shape))
@@ -495,6 +497,8 @@ if __name__ == "__main__":
                 print("........Validation label size: " + str(y_validate.shape))
             # Split Train and Test data set
             X_train, X_test, y_train, y_test = train_test_split(X_input, y_input, test_size=0.1, shuffle=True)
+            while len(collections.Counter(list(y_train))) <= 1:
+                X_train, X_test, y_train, y_test = train_test_split(X_input, y_input, test_size=0.1, shuffle=True)
             if classification_verbose:
                 print("....Train & Test data split")
                 print("........Train data size: " + str(X_train.shape))

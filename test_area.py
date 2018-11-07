@@ -1,6 +1,7 @@
 import os, sys, time, random
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 def load_sample_texts(url, current_files, ext="txt"):
     for f in os.listdir(url):
         fp = os.path.join(url, f)
@@ -52,7 +53,7 @@ Nul(0) - US(31) except NewLine(10), 127
 
 """
 # Load sample data
-plot_signal = False
+"""plot_signal = False
 scale_signal = True
 max_ascii = 127
 labeled_data_dir = "D:\\text_database\\SentenceCorpus\\labeled_articles\\"
@@ -128,6 +129,85 @@ if plot_signal:
         plt.title("Trimmed")
         plt.plot(trimmed_data[i])
         plt.grid(True)
-        plt.pause(2)
+        plt.pause(2)"""
+
+
+# Temporary: Detection of individual basic waveforms in a signal
+from scipy.signal import find_peaks
+from MyNet.emg_classification_library.signal_analysis_functions import butter_bandpass_filter
+from MyNet.emg_classification_library.dataset_functions import get_dataset
+
+# butter_bandpass_filter(data, cutoff_freqs, btype, fs, order=5)
+
+root = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+base = root + 'train\\als\\a01_patient\\N2001A01BB02\\'
+urls, labels, label_map = get_dataset(root, shuffle=True)
+
+for index in range(len(urls)):
+    plt.clf()
+    data = np.load(os.path.join(urls[index], 'data.npy'))
+    filtered = butter_bandpass_filter(data, [5, 10000], 'band', 23437.5, order=2)
+    peak_ranges = {'low': [0, np.mean(filtered[filtered > 0]) - 1],
+                   'high': [np.mean(filtered[filtered > 0]), np.amax(filtered)]}
+
+    # Find peak
+    print('Finding peak for peak range type: ' + str(range))
+    peak, _ = find_peaks(filtered.copy(), height=peak_ranges['high'], distance=234)
+    bep_eep = []
+    print('Total Peak detected: ' + str(len(peak)))
+
+    # Find BEP AND EEP
+    last_traversed = 0
+    if len(peak) > 0:
+        for i in range(len(peak)):
+            print('Tryng to estimate bep and eep for peak at ' + str(peak[i]))
+            current_bep = last_traversed
+            # Find BEP
+
+            for j in range(last_traversed + 1, peak[i]):
+
+                if abs(filtered[j] - filtered[j - 1]) / (filtered[j] - filtered[j - 1]) != abs(
+                        filtered[j + 1] - filtered[j]) / (filtered[j + 1] - filtered[j]):
+                    current_bep = j
+                last_traversed = j
+            # Find EEP
+            current_eep = peak[i] + 1
+            if i + 1 < len(peak) and peak[i+1] < len(filtered)-1:
+                end = peak[i + 1]
+            else:
+                end = len(filtered)
+            end = len(filtered)-1
+            for j in range(peak[i] + 1, end):
+                last_traversed = j
+                if abs(filtered[j] - filtered[j - 1]) / (filtered[j] - filtered[j - 1]) != abs(
+                        filtered[j + 1] - filtered[j]) / (filtered[j + 1] - filtered[j]):
+                    current_eep = j
+                    break
+            bep_eep.append([current_bep, current_eep])
+
+    dist_b2p = np.asarray(peak) - np.asarray(bep_eep)[:, 0]
+    amp_b2p = abs(filtered[np.asarray(peak)] - np.abs(filtered[np.asarray(bep_eep)[:, 0]]))
+    dist_e2p = np.asarray(bep_eep)[:, 1] - np.asarray(peak)
+    amp_e2p = abs(filtered[np.asarray(peak)] - np.abs(filtered[np.asarray(bep_eep)[:, 1]]))
+
+    peak_area = [np.sum(filtered[bep_eep[i][0]: bep_eep[i][1]]**2) for i in range(len(peak))]
+    print("Distance b2p: " + str(dist_b2p.shape))
+    print("Distance e2p: " + str(dist_e2p.shape))
+    plt.subplot(2, 1, 1)
+    plt.title('Type: ' + str(label_map[labels[index]]).upper() + ", Left: " + str(len(urls)-index))
+    plt.plot(filtered)
+    plt.plot(peak, filtered[peak], 'gx')
+    plt.plot(np.asarray(bep_eep).flatten(), filtered[np.asarray(bep_eep).flatten()], 'rx')
+    plt.grid()
+    plt.subplot(2, 1, 2, projection='3d')
+    im = plt.scatter(amp_b2p/dist_b2p, amp_e2p/dist_e2p,
+                     zs=peak_area, s=5, c=peak/len(filtered), cmap='hot')
+    plt.gcf().colorbar(im, shrink=0.5, aspect=5)
+    plt.grid()
+    plt.xlabel('b2p[sqrt(width**2 + height**2)]')
+    plt.ylabel('e2p[sqrt(width**2 + height**2)]')
+    plt.show()
+
+
 
 
