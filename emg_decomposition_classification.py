@@ -17,6 +17,91 @@ import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
 import MyNet.emg_classification_library.muap_analysis_functions as mfunctions
 
 
+# Expands a MUAP waveform from the Signal Waveform
+def expand_muap_waveform(data, fs, muaps, muap_firing_index, expand_duration, verbose=True):
+
+    signal_expand_length = int(math.ceil((fs * expand_duration) / 1000))
+    expanded_signals = []
+    for j in range(len(muaps)):
+        if verbose:
+            print('Expanding MUAP Waveform No. ' + str(j) + ", Left: " + str(len(muaps) - j))
+        expand_crop_start = muap_firing_index[j] - int(signal_expand_length / 2)
+        expand_crop_end = muap_firing_index[j] + int(signal_expand_length / 2) + 1
+        expanded_signal = filtered[expand_crop_start:expand_crop_end]
+        if verbose:
+            print('Original MUAP Length: ' + str(len(muaps[i])))
+            print('Expanded Signal length: ' + str(len(expanded_signal)))
+        expanded_signals.append(expanded_signal)
+    return expanded_signals
+# Extracts features from MUAP Decomposition output of each signal for classification according to the paper
+def default_feature_extraction(data, sampling_rates, waveforms, classes, firing_time, firing_index, firing_table, residue,
+                               expand_duration=25, verbose=True, plot=False):
+    verbose = True
+    """
+    :param data: The list of filtered signal in the data set
+    :param sampling_rates: Sampling rates of the filtered signals of the data set
+    :param waveforms: The list of MUAP waveforms of the filtered signals in the data set
+    :param classes: The list of MUAP classes of the filtered signals in the data set
+    :param firing_time: The list of firing times og the MUAP waveforms of the filtered signals in the data set
+    :param firing_index: The indices of filtered data where each MUAP waveform of the filtered data fires
+    :param firing_table: The firing table for all output neurons
+    :param residue: The residue waveforms of the decomposed MUAP
+    :param verbose: Whether progress should be displayed
+    :return: Features extracted from each filtered waveform
+    """
+    # Parameter Measurement
+    extracted_features = []
+    # For each filtered data
+    for i in range(len(data_filtered)):
+        if verbose:
+            print('Averaging actual MUAP Waveforms for extracting features')
+            print('Total MUAPs: ' + str(len(waveforms[i])))
+        # Get the current filtered signal, MUAP waveforms, firing indices, firing times and sampling rate
+        filtered = data_filtered[i]
+        fs = sampling_rates[i]
+        muaps = waveforms[i]
+        muap_classes = classes[i]
+        muap_firing_times = firing_time[i]
+        muap_firing_index = firing_index[i]
+
+        # Expand the MUAP waveform duration for averaging and extracting features
+        expanded_signals = expand_muap_waveform(filtered, fs, muaps, muap_firing_index, expand_duration, verbose=verbose)
+
+        if len(expanded_signals) > 0:
+            # For each output neuron/node in the firing table
+            if verbose:
+                print("Caculating Average and Standard Deviation for each sample point of all MUAP waveforms in a class")
+            for j in range(len(firing_table)):
+                # Calculate Average and Standard Deviation for each MUAP waveform belonging to that output class
+                avg_sample_points = np.asarray([0 for _ in range(len(expanded_signals[0]))], dtype=np.float64)
+                points = [ [] for _ in range(len(expanded_signals[0]))]
+                if verbose:
+                    print("Calculating Average MUAP waveform for output node No. " + str(j+1))
+                    print("Calculating Average and Std for " + str(len(expanded_signals[0])) + " sample points")
+                for k in range(len(expanded_signals)):
+                    if verbose:
+                        print("Calculating Average and Std for MUAP waveform No. " + str(k+1))
+                    if muap_classes[k] == j:
+                        avg_sample_points += np.asarray(expanded_signals[k])
+                        if verbose:
+                            print("Current Average Waveform for the output: " + str(avg_sample_points.shape))
+                        for m in range(len(expanded_signals[k])):
+                            points[m].append(expanded_signals[k][m])
+                std_dev = [np.std(points[k]) for k in range(len(points))]
+                avg_sample_points = avg_sample_points / len(expanded_signals)
+                average_signal = []
+                for k in range(len(points)):
+                    if verbose:
+                        print("Averaging sample point No. " + str(k))
+                        print("Average data in the sample point: " + str(avg_sample_points[k]))
+                        print("Standard Deviation of data in the sample point: " + str(std_dev[k]))
+                    if -1 <  < 1:
+                        average_signal.append(avg_sample_points[k])
+                # Calculate Average for the class whose
+                if verbose:
+                    print("MUAP length before averaging: " + str(len(expanded_signals[0])))
+                    print("Average MUAP length: " + str(len(average_signal)))
+    return extracted_features
 
 if __name__ == "__main__":
     # ------------------------------PREDEFINED PARAMETERS-----------------------------------------------
@@ -41,7 +126,10 @@ if __name__ == "__main__":
     
 
     """
+    verbose = True
     # ----------------- Data Acquisition Parameters--------------------------------
+    if verbose:
+        print("SETTING DATA ACQUISITION PARAMETERS...")
     signal_type = "real"
     scale_data = True
     suffix = "_" + signal_type
@@ -61,8 +149,8 @@ if __name__ == "__main__":
 
     print("LOADING DATA SET")
     raw_urls, raw_labels, label_map = dfunctions.get_dataset(data_base_dir, shuffle=True)
-    raw_urls = list(raw_urls)
-    raw_labels = list(raw_labels)
+    raw_urls = list(raw_urls)[:2]
+    raw_labels = list(raw_labels)[:2]
     if raw_labels[0] == raw_labels[1]:
         for i in range(1, len(raw_labels)):
             if raw_labels[i] != raw_labels[0]:
@@ -139,6 +227,8 @@ if __name__ == "__main__":
         1.4 Store the Cropped data and their corresponding labels
         1.5 Filter the Cropped data and store the filtered data
     """
+    if verbose:
+        print('ACQUIRING & PREPROCESSING SIGNALS FROM DATA SET...')
     data_np = []
     data_cropped = []
     data_filtered = []
@@ -154,6 +244,8 @@ if __name__ == "__main__":
         plt.ion()
         plt.show()
     for i in range(len(urls)):
+        if verbose:
+            print("Loading data No. " + str(i) + ", Left: " + str(len(urls)-i))
         # Load Numpy data
         d = np.load(os.path.join(urls[i], data_filename))
         data_np.append(d)  # Add raw data to list
@@ -244,6 +336,7 @@ if __name__ == "__main__":
             accordingly.    
 
     """
+    print('PERFORMING MUAP SEGMENTATION, CLASSIFICATION AND DECOMPOSITION FOR SIGNALS OF DATA SET...')
     all_candidate_muap_waveforms = []  # Stores the candidate identified MUAP waveform
     all_candidate_muap_firing_times = []  # Stores the candidate firing times of identified waveforms
     all_candidate_waveform_peak_indices = []  # Stores the index of the peak of MUAP waveform in the filtered signal
@@ -255,11 +348,12 @@ if __name__ == "__main__":
     all_decomposed_actual_waveforms = []
     all_decomposed_actual_waveform_classes = []
     all_decomposed_actual_waveform_firing_time = []
+    all_decomposed_actual_waveform_indices = []
     all_decomposed_residue_waveforms = []
     all_decomposed_muap_firing_table = []
 
-    muap_seg_verbose = True
-    muap_seg_plot = 'debug'  # debug, interactive or none
+    muap_seg_verbose = False
+    muap_seg_plot = 'none'  # debug, interactive or none
     muap_seg_plot_fig_num = 200
 
 
@@ -273,6 +367,8 @@ if __name__ == "__main__":
         plt.show()
     # For each signal in the data set
     for i in range(len(data_filtered)):
+        if verbose:
+            print('Loading data No. ' + str(i) + ", Left: " + str(len(data_filtered)-i))
         if muap_seg_verbose:
             print("Calculating MUAP waveforms from " + urls[i] + " : Left - " + str(len(filtered)-i))
 
@@ -334,15 +430,23 @@ if __name__ == "__main__":
         decomposed_actual_muap_waveforms = [decomposed_actual_muaps[j][0] for j in range(len(decomposed_actual_muaps))]
         decomposed_actual_muap_classes = [decomposed_actual_muaps[j][1] for j in range(len(decomposed_actual_muaps))]
         decomposed_actual_muap_firing_time = [decomposed_actual_muaps[j][2] for j in range(len(decomposed_actual_muaps))]
+        decomposed_actual_muap_index = [decomposed_actual_muaps[j][3] for j in range(len(decomposed_actual_muaps))]
         residue_actual_muap_waveforms = [decomposed_residue_muap[j][0] for j in range(len(decomposed_residue_muap))]
         residue_actual_muap_classes = [decomposed_residue_muap[j][1] for j in range(len(decomposed_residue_muap))]
         residue_actual_muap_firing_time = [decomposed_residue_muap[j][2] for j in range(len(decomposed_residue_muap))]
-
+        residue_actual_muap_index = [decomposed_residue_muap[j][3] for j in range(len(decomposed_residue_muap))]
         for j in range(len(decomposed_actual_muap_firing_time)):
             for k in range(len(decomposed_firing_table)):
                 if decomposed_actual_muap_classes[j] == k:
                     decomposed_firing_table[k] += decomposed_actual_muap_firing_time[j]
                     break
+
+        all_decomposed_actual_waveforms.append(decomposed_actual_muap_waveforms)
+        all_decomposed_actual_waveform_classes.append(decomposed_actual_muap_classes)
+        all_decomposed_actual_waveform_firing_time.append(decomposed_actual_muap_firing_time)
+        all_decomposed_residue_waveforms.append(residue_actual_muap_waveforms)
+        all_decomposed_muap_firing_table.append(decomposed_firing_table)
+        all_decomposed_actual_waveform_indices.append(decomposed_actual_muap_index)
 
         if muap_seg_plot == 'debug' or muap_seg_plot == 'interactive':
             colors = ['green', 'red', 'lightcoral', 'black', 'magenta', 'orange', 'dimgrey', 'lightseagreen']
@@ -392,7 +496,10 @@ if __name__ == "__main__":
                     crop_end = crop_start + int(muap_waveform_samples)
                     plt.plot(np.arange(crop_start, crop_end, 1),
                              filtered[np.arange(crop_start, crop_end, 1)], color=colors[j])
-                    plt.plot(peak, filtered[peak], marker='x', color=colors[j])
+                    if peak in decomposed_actual_muap_index:
+                        plt.plot(peak, filtered[peak], marker='x', color='blue')
+                    else:
+                        plt.plot(peak, filtered[peak], marker='x', color=colors[j])
 
             plt.figure(muap_seg_plot_fig_num+1)
             plt.clf()
@@ -435,22 +542,20 @@ if __name__ == "__main__":
                 plt.pause(2)
             else:
                 plt.show()
-    # ------------------------------3. EMG DECOMPOSITION-------------------------------------------------
-    """
-    This section decomposes each superimposed MUAP Waveform each output motor unit of each
-    filtered data and updates the corresponding firing table. The steps followed are:
-    1. For each filtered data:
-        1.1  For each MUAP waveform:
-            1.1.1  Decompose the waveform and update firing time of the Actual MUAPs
-                  
 
-    """
 
     # ------------------------------4. FEATURE EXTRACTION-------------------------------------------------
     """
     This section detects extracts features from the MUAP Waveform and firing table of each output motor unit of each
     filtered data. The steps followed are:
-    1. For each filtered data:
-        1.1         
+    1. For each decomposed data:
+        1.1  Extract feature from the MUAP waveforms and Firing Table of the decomposed data       
 
     """
+    if verbose:
+        print('EXTRACTING FEATURES FROM SIGNALS OF THE DATA SET...')
+    # default_feature_extraction(data,sampling_rates, waveforms, classes, firing_time, firing_index, firing_table, residue)
+    data_features = default_feature_extraction(data_filtered, data_fs,
+        all_decomposed_actual_waveforms, all_decomposed_actual_waveform_classes, all_decomposed_actual_waveform_firing_time,
+        all_decomposed_actual_waveform_indices, all_decomposed_muap_firing_table, all_decomposed_residue_waveforms
+    )

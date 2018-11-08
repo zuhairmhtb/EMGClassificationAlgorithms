@@ -522,10 +522,10 @@ def perform_emg_decomposition(waveforms, waveform_classes, waveform_superimposit
     for i in range(len(waveforms)):
 
         if waveform_superimposition[i] == 0:
-            actual_muaps.append([waveforms[i], waveform_classes[i], firing_time[i]])
+            actual_muaps.append([waveforms[i], waveform_classes[i], firing_time[i], firing_time[i][0]])
 
         else:
-            superimposed_muaps.append([waveforms[i], waveform_classes[i], firing_time[i]])
+            superimposed_muaps.append([waveforms[i], waveform_classes[i], firing_time[i], firing_time[i][0]])
     if verbose:
         print('Actual MUAPS: ' + str(len(actual_muaps)))
         print('Superimposed MUAPS: ' + str(len(superimposed_muaps)))
@@ -666,6 +666,8 @@ def perform_emg_decomposition(waveforms, waveform_classes, waveform_superimposit
 
                 # Calculate residue signal
                 residue_signal = np.subtract(class_smuap, class_muap)
+                # Update Firing time of the Best Matching MUAP with the firing time of the superimposed signal
+                actual_muaps[best_matching_muap][2] += smuap[2]
                 # If the maximum amplitude of the residue signal is less than the maximum residue threshold
                 if np.amax(residue_signal[class_smuap_start:class_smuap_end]) < max_residue_amp:
                     # If the max amplitude of residue signal is greater than threshold, then feed it back to the
@@ -677,8 +679,6 @@ def perform_emg_decomposition(waveforms, waveform_classes, waveform_superimposit
                 else:
                     # Else add it to the list of decomposed residue signal
                     residue_superimposed_muaps.append(smuap)
-                # Update Firing time of the Best Matching MUAP with the firing time of the superimposed signal
-                actual_muaps[best_matching_muap][2] += smuap[2]
                 if plot:
                     plt.subplot(3, 1, 1)
                     plt.title('Best Matching MUAP: Cross Correlation Index: ' + str(highest_cor_ind))
