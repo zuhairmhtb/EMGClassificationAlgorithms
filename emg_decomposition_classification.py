@@ -230,14 +230,18 @@ if __name__ == "__main__":
             else:
                 plt.show()
 
-    # ------------------------------2. MUAP SEGMENTATION & MUAP CLASSIFICATION-------------------------------------------------
+    # ------------------------------2. MUAP SEGMENTATION, CLASSIFICATION & DECOMPOSITION-------------------------------------------------
     """
     This section detects MUAP waveforms & their corresponding firing time using Peak Detection and
     window technique. The steps followed are:
     1. For each filtered data:
         1.1 Calculate Peaks of from the signal using thresholding technique.
-        1.2 Calculate Candidate MUAP waveforms & their firing time from the detected peaks and the corresponding signal.
-        
+        1.2 Calculate & Store Candidate MUAP waveforms & their firing time from the detected peaks and the corresponding
+            signal.
+        1.3 Calculate & Store final MUAP Waveforms(Actual & Superimposed), Classes and the firing table from Candidate
+            MUAP Waveforms.        
+        1.4 Decompose the final MUAP superimposed waveforms based on actual waveforms and update the firing table
+            accordingly.    
 
     """
     all_candidate_muap_waveforms = []  # Stores the candidate identified MUAP waveform
@@ -246,7 +250,14 @@ if __name__ == "__main__":
     all_final_muap_waveforms = [] # Stores the final indentified MUAP waveforms
     all_final_muap_output_classes = [] # Stores the final output classes of identified waveforms
     all_final_muap_superimposition_classes = []  # Stores final superimposition classes of identified waveforms
+    all_final_muap_firing_times = []  # Stores final firing time for identified MUAP Waveforms
     all_final_muap_firing_tables = []  # Stores firing table of all signals
+    all_decomposed_actual_waveforms = []
+    all_decomposed_actual_waveform_classes = []
+    all_decomposed_actual_waveform_firing_time = []
+    all_decomposed_residue_waveforms = []
+    all_decomposed_muap_firing_table = []
+
     muap_seg_verbose = True
     muap_seg_plot = 'debug'  # debug, interactive or none
     muap_seg_plot_fig_num = 200
@@ -255,6 +266,7 @@ if __name__ == "__main__":
     if muap_seg_plot == 'debug' or muap_seg_plot == 'interactive':
         plt.figure(muap_seg_plot_fig_num)
         plt.figure(muap_seg_plot_fig_num+1)
+        plt.figure(muap_seg_plot_fig_num + 2)
 
     if muap_seg_plot == 'interactive':
         plt.ion()
@@ -295,46 +307,87 @@ if __name__ == "__main__":
                                         lvq_gaussian_thresh=0.005, learning_rate=1, neighborhood='gaussian',
                                         verbose=True)
         Returns: MUAP Waveforms(List[[]]), MUAP Class(List[]), Classification Output(Actual/Superimposed)(List[]),
-                 Firing Table(List[[]])                                
+                 MUAP Firing Times(List[[]]), Firing Table(List[[]])                                
         """
 
-        final_muap_waveforms, final_muap_classes, final_muap_outputs, muap_firing_table = mfunctions.custom_muap_sofm_classification(
+        final_muap_waveforms, final_muap_classes, final_muap_outputs, final_muap_firing_time, muap_firing_table = mfunctions.custom_muap_sofm_classification(
             waveforms, firing_time, muap_firing_table, muap_size=network_size, verbose=muap_seg_verbose
         )
         all_final_muap_waveforms.append(final_muap_waveforms)
         all_final_muap_output_classes.append(final_muap_classes)
         all_final_muap_superimposition_classes.append(final_muap_outputs)
+        all_final_muap_firing_times.append(final_muap_firing_time)
         all_final_muap_firing_tables.append(muap_firing_table)
 
+        # Decompose superimposed MUAPs based on the Actual MUAPs and update the firing table
+        decomposed_firing_table = [ [] for _ in range(muap_output_neurons)]
+
+
+        #perform_emg_decomposition(waveforms, waveform_classes, waveform_superimposition, firing_time, max_residue_amp=30,
+        #                threshold_const_a=0.5, threshold_const_b=4, nd_thresh1=0.2, nd_thresh2=0.5,
+         #               calculate_endpoints=False, pearson_correlate=True, plot=False, verbose=True)
+        # @Returns:actual_muaps(List[ [waveform[], classes[], firing time[]] ]), residue_superimposed_muaps (List[ [waveform[], classes[], firing time[]] ])
+
+        decomposed_actual_muaps, decomposed_residue_muap = mfunctions.perform_emg_decomposition(
+            final_muap_waveforms, final_muap_classes, final_muap_outputs, final_muap_firing_time, verbose=muap_seg_verbose
+        )
+        decomposed_actual_muap_waveforms = [decomposed_actual_muaps[j][0] for j in range(len(decomposed_actual_muaps))]
+        decomposed_actual_muap_classes = [decomposed_actual_muaps[j][1] for j in range(len(decomposed_actual_muaps))]
+        decomposed_actual_muap_firing_time = [decomposed_actual_muaps[j][2] for j in range(len(decomposed_actual_muaps))]
+        residue_actual_muap_waveforms = [decomposed_residue_muap[j][0] for j in range(len(decomposed_residue_muap))]
+        residue_actual_muap_classes = [decomposed_residue_muap[j][1] for j in range(len(decomposed_residue_muap))]
+        residue_actual_muap_firing_time = [decomposed_residue_muap[j][2] for j in range(len(decomposed_residue_muap))]
+
+        for j in range(len(decomposed_actual_muap_firing_time)):
+            for k in range(len(decomposed_firing_table)):
+                if decomposed_actual_muap_classes[j] == k:
+                    decomposed_firing_table[k] += decomposed_actual_muap_firing_time[j]
+                    break
 
         if muap_seg_plot == 'debug' or muap_seg_plot == 'interactive':
             colors = ['green', 'red', 'lightcoral', 'black', 'magenta', 'orange', 'dimgrey', 'lightseagreen']
             plt.figure(muap_seg_plot_fig_num)
             plt.clf()
             plt.suptitle("MUAP Segmentation: Patient type-" + label_map[labels[i]].upper())
-            plt.subplot(2, 1, 1)
+            plt.subplot(3, 1, 1)
             plt.title('Candidate MUAP Waveforms - Total: ' + str(len(waveforms)))
             plt.xlabel("Samples[n]")
             plt.ylabel("Amplitude(uV)")
             plt.grid()
             plt.subplots_adjust(hspace=0.7)
-            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-')
+            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-', linewidth=0.5)
             for j in range(len(waveforms)):
                 crop_start = peak_indices[j] - int(muap_waveform_samples/2)
                 crop_end = crop_start + int(muap_waveform_samples)
                 plt.plot(np.arange(crop_start, crop_end, 1), waveforms[j], 'r-')
                 plt.plot(peak_indices[j], filtered[peak_indices[j]], 'gx')
 
-            plt.subplot(2, 1, 2)
+            plt.subplot(3, 1, 2)
             plt.title("MUAP Firing Table - Total Motor Units: " + str(muap_output_neurons))
             plt.xlabel("Samples[n]")
             plt.ylabel("Amplitude(uV)")
             plt.grid()
             plt.subplots_adjust(hspace=0.7)
-            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-')
+            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-', linewidth=0.5)
             for j in range(len(muap_firing_table)):
                 for k in range(len(muap_firing_table[j])):
                     peak = muap_firing_table[j][k]
+                    crop_start = peak - int(muap_waveform_samples/2)
+                    crop_end = crop_start + int(muap_waveform_samples)
+                    plt.plot(np.arange(crop_start, crop_end, 1),
+                             filtered[np.arange(crop_start, crop_end, 1)], color=colors[j])
+                    plt.plot(peak, filtered[peak], marker='x', color=colors[j])
+
+            plt.subplot(3, 1, 3)
+            plt.title("MUAP Decomposition Firing Table")
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-', linewidth=0.5)
+            for j in range(len(decomposed_firing_table)):
+                for k in range(len(decomposed_firing_table[j])):
+                    peak = decomposed_firing_table[j][k]
                     crop_start = peak - int(muap_waveform_samples/2)
                     crop_end = crop_start + int(muap_waveform_samples)
                     plt.plot(np.arange(crop_start, crop_end, 1),
@@ -348,17 +401,56 @@ if __name__ == "__main__":
             rows = int(math.ceil(muap_output_neurons/cols))
             for j in range(muap_output_neurons):
                 plt.subplot(rows, cols, j+1)
+
                 plt.title("MU" + str(j+1) + ": Total: " + str(list(final_muap_classes).count(j)))
                 plt.xlabel("Samples[n]")
                 plt.ylabel("Amplitude(uV)")
                 plt.grid()
                 plt.subplots_adjust(hspace=0.9, wspace=0.3)
                 for k in range(len(final_muap_waveforms)):
-                    if final_muap_classes[k] == j and final_muap_outputs[k] == 0: # Actual Waveform display only
+                    if final_muap_classes[k] == j: # Actual & Superimposed Waveform display
                         plt.plot(final_muap_waveforms[k], color=colors[j])
 
+            plt.figure(muap_seg_plot_fig_num + 2)
+            plt.clf()
+            plt.suptitle("MUAP Decomposition: : Patient type-" + label_map[labels[i]].upper())
+            cols = 2
+            rows = int(math.ceil(muap_output_neurons / cols))
+            for j in range(muap_output_neurons):
+                plt.subplot(rows, cols, j + 1)
+                total = 0
+                for k in range(len(decomposed_actual_muap_classes)):
+                    if decomposed_actual_muap_classes[k] == j:
+                        total += 1
+                plt.title("MU" + str(j + 1) + ": Total: " + str(total))
+                plt.xlabel("Samples[n]")
+                plt.ylabel("Amplitude(uV)")
+                plt.grid()
+                plt.subplots_adjust(hspace=0.9, wspace=0.3)
+                for k in range(len(decomposed_actual_muap_classes)):
+                    if decomposed_actual_muap_classes[k] == j:  # Actual Waveform display
+                        plt.plot(decomposed_actual_muap_waveforms[k], color=colors[j])
 
             if muap_seg_plot == 'interactive':
                 plt.pause(2)
             else:
                 plt.show()
+    # ------------------------------3. EMG DECOMPOSITION-------------------------------------------------
+    """
+    This section decomposes each superimposed MUAP Waveform each output motor unit of each
+    filtered data and updates the corresponding firing table. The steps followed are:
+    1. For each filtered data:
+        1.1  For each MUAP waveform:
+            1.1.1  Decompose the waveform and update firing time of the Actual MUAPs
+                  
+
+    """
+
+    # ------------------------------4. FEATURE EXTRACTION-------------------------------------------------
+    """
+    This section detects extracts features from the MUAP Waveform and firing table of each output motor unit of each
+    filtered data. The steps followed are:
+    1. For each filtered data:
+        1.1         
+
+    """
