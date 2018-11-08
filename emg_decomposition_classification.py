@@ -14,6 +14,7 @@ from sklearn.preprocessing import label_binarize, LabelBinarizer
 
 import MyNet.emg_classification_library.dataset_functions as dfunctions
 import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
+import MyNet.emg_classification_library.muap_analysis_functions as mfunctions
 
 
 
@@ -37,16 +38,11 @@ if __name__ == "__main__":
     2. Crop Left and Right length: The amout of samples that will be removed from left and right
     3. Filter Band: The Band Type(Lowpass, Highpass, Bandpass) which will be used for filtering the data.
     4. Filter Range: The range(Highpass and/or Lowpass) which will be used for filtering the data
-    5. DWT Wavelet: Discrete Wavelet Transform Mother Wavelet
-    6. DWT level: Number of levels upto which the signal will be decomposed
-
-    ---------------------- C. Feature Extraction Section--------------------------------------
-    1. Feature Table: The table in which the output of feature extraction will be stored(Discrete Wavelet Transform).
-    2. Classification Features: The features extracted for classification.
-    3. Input Features, label and label map path: The path of file where input features to the classifier will be stored.
+    
 
     """
-    signal_type = "simulated"
+    # ----------------- Data Acquisition Parameters--------------------------------
+    signal_type = "real"
     scale_data = True
     suffix = "_" + signal_type
     if scale_data:
@@ -110,8 +106,259 @@ if __name__ == "__main__":
     if len(urls) % 10 != 0:
         data_size += [len(urls)]
 
-    cropped_signal_duration = 5000  # ms
+    # --------------------------Data Preprocessing Parameters--------------------------------------
+    # Cropping
+    cropped_signal_duration = 5000  # Cropped Signal length(ms)
 
-    signal_filter_band = 'band'
-    signal_filter_range = [5, 10000]  # Highpass: 5Hz, Lowpass: 10KHz
-    signal_filter_order = 2
+    # Filtering
+    signal_filter_band = 'lowpass'  # Signal Filter type
+    signal_filter_range = [8000]  # Lowpass: 8KHz
+    signal_filter_order = 2  # Filter Order
+
+    # ------------------------- MUAP Segmentation Parameters---------------------------------------
+    # Segmentation/MUAP waveform Calculation
+    muap_waveform_duration = 6  # Duration of each identified MUAP waveform segment(ms)
+
+    # The minimum amount by which a peak's amplitude must increase in order to be counted as valid MUAP(uV)
+    muap_peak_rise_threshold = 40
+    # The duration within which the amplitude of a peak must exceed the specified threshold
+    muap_rise_duration = 0.1
+
+    # ------------------------- MUAP Classification Parameters--------------------------------------
+    # The number of output neurons in the SOFM network
+    muap_output_neurons = 8
+
+    # ------------------------------1. DATA ACQUISITION & PREPROCESSING-------------------------------------------------
+    """
+    This section loads raw signal data from the urls and arranges it in an array for preprocessing.
+    The steps followed are:
+    1. For each URL:
+        1.1 Load Numpy data.
+        1.2 Read Sampling rate
+        1.3 Pad/Crop raw Input data in order to make all sample data of same length.
+        1.4 Store the Cropped data and their corresponding labels
+        1.5 Filter the Cropped data and store the filtered data
+    """
+    data_np = []
+    data_cropped = []
+    data_filtered = []
+    data_labels = []
+    data_fs = []
+    data_acq_verbose = False
+    data_acq_plot = 'none'  # interactive, debug or none
+    data_acq_plot_fig_num = 100
+
+    if data_acq_plot == 'interactive' or data_acq_plot == 'debug':
+        plt.figure(data_acq_plot_fig_num)
+    if data_acq_plot == 'interactive':
+        plt.ion()
+        plt.show()
+    for i in range(len(urls)):
+        # Load Numpy data
+        d = np.load(os.path.join(urls[i], data_filename))
+        data_np.append(d)  # Add raw data to list
+        data_labels.append(labels[i])  # Add class label to list
+        # Read Sampling rate
+        fs = dfunctions.read_sampling_rate(os.path.join(urls[i], header_filename))
+        data_fs.append(fs)  # Add sampling rate to list
+
+        # Crop data
+        cropped_data_length = int( (fs*cropped_signal_duration)/1000 )  # Number of samples to be kept after cropping
+        extra = len(d) - cropped_data_length  # The number of samples to be cropped
+
+        # If the loaded data length is greater than required cropped data length
+        if extra > 0:
+            crop_left = int(extra/2)  # Crop left end of the signal
+            crop_right = extra - crop_left  # Crop right end of the signal
+            cropped_data = d[crop_left:-crop_right]  # Crop the signal
+        # Else if the data length is less than the required cropped data length
+        elif extra < 0:
+            zeros_left = int(abs(extra)/2)  # Pad left end of the signal with zeroes
+            zeroes_right = abs(extra) - zeros_left  # Pad right end of the signal with zeroes
+            # Create zero padded cropped data
+            cropped_data = np.asarray(
+                [0 for _ in range(zeros_left)] + d.tolist() + [0 for _ in range(zeroes_right)]
+            )
+        # Else if the length of data is equal to the required length of cropped data
+        else:
+            cropped_data = d.copy()  # Add the data as cropped data
+
+
+        data_cropped.append(cropped_data)  # Store Cropped data
+
+        # Filter the cropped data
+        filtered = sfunctions.butter_bandpass_filter(cropped_data, signal_filter_range, signal_filter_band,
+                                                     fs, order=signal_filter_order)
+
+        data_filtered.append(filtered)  # Add the filtered data to list of filtered data
+        if data_acq_verbose:
+            print("Loaded data from: " + urls[i])
+            print("Subject Type: " + str(label_map[labels[i]]))
+            print("Original Signal duration: " + str( (1000*d.shape[0])/fs ) + "ms")
+            print("Cropped Signal duration: " + str((1000 * cropped_data.shape[0]) / fs) + "ms")
+            print("Filtered data duration: " + str( (1000 * filtered.shape[0]) / fs) + "ms")
+            print("----------------------------------------------------------------------------------\n\n\n")
+
+        if data_acq_plot == 'interactive' or data_acq_plot == 'debug':
+            plt.clf()
+            plt.suptitle("EMG Preprocessing: Patient type-" + label_map[labels[i]].upper())
+            plt.subplot(3, 1, 1)
+            plt.title("Raw EMG Signal - Duration: " + str(int(len(d)/fs)) + " seconds")
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(d)
+
+            plt.subplot(3, 1, 2)
+            plt.title("Cropped EMG Signal - Duration: " + str(int(len(cropped_data) / fs)) + " seconds")
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(cropped_data)
+
+            plt.subplot(3, 1, 3)
+            plt.title("Filtered EMG Signal - Duration: " + str(int(len(filtered) / fs)) + " seconds")
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(filtered)
+            if data_acq_plot == 'interactive':
+                plt.pause(2)
+            else:
+                plt.show()
+
+    # ------------------------------2. MUAP SEGMENTATION & MUAP CLASSIFICATION-------------------------------------------------
+    """
+    This section detects MUAP waveforms & their corresponding firing time using Peak Detection and
+    window technique. The steps followed are:
+    1. For each filtered data:
+        1.1 Calculate Peaks of from the signal using thresholding technique.
+        1.2 Calculate Candidate MUAP waveforms & their firing time from the detected peaks and the corresponding signal.
+        
+
+    """
+    all_candidate_muap_waveforms = []  # Stores the candidate identified MUAP waveform
+    all_candidate_muap_firing_times = []  # Stores the candidate firing times of identified waveforms
+    all_candidate_waveform_peak_indices = []  # Stores the index of the peak of MUAP waveform in the filtered signal
+    all_final_muap_waveforms = [] # Stores the final indentified MUAP waveforms
+    all_final_muap_output_classes = [] # Stores the final output classes of identified waveforms
+    all_final_muap_superimposition_classes = []  # Stores final superimposition classes of identified waveforms
+    all_final_muap_firing_tables = []  # Stores firing table of all signals
+    muap_seg_verbose = True
+    muap_seg_plot = 'debug'  # debug, interactive or none
+    muap_seg_plot_fig_num = 200
+
+
+    if muap_seg_plot == 'debug' or muap_seg_plot == 'interactive':
+        plt.figure(muap_seg_plot_fig_num)
+        plt.figure(muap_seg_plot_fig_num+1)
+
+    if muap_seg_plot == 'interactive':
+        plt.ion()
+        plt.show()
+    # For each signal in the data set
+    for i in range(len(data_filtered)):
+        if muap_seg_verbose:
+            print("Calculating MUAP waveforms from " + urls[i] + " : Left - " + str(len(filtered)-i))
+
+        filtered = data_filtered[i]
+        muap_waveform_samples = int(math.ceil((fs * muap_waveform_duration) / 1000))
+        # Calculate the candidate MUAP waveforms, their firing time and Peak indices
+
+        #potential_muap, muap_waveforms, muap_firing_times = muap_an_get_segmentation_const_window(
+        # data, fs, window_ms=6, mav_coeff=30, peak_amp_increase_amount=40, peak_amp_increase_duration=0.1,
+        # verbose=True)
+
+        peak_indices, waveforms, firing_time = mfunctions.muap_an_get_segmentation_const_window(
+            filtered.copy(), data_fs[i], window_ms=muap_waveform_duration,
+            peak_amp_increase_amount=muap_peak_rise_threshold, peak_amp_increase_duration=muap_rise_duration,
+            verbose=muap_seg_verbose, window_length=muap_waveform_samples
+        )
+        all_candidate_waveform_peak_indices.append(peak_indices)
+        all_candidate_muap_waveforms.append(waveforms)
+        all_candidate_muap_firing_times.append(firing_time)
+
+        # Classify Candidate MUAP waveforms to Motor Unit classes and detect superimposed waveforms
+
+        # The size of the SOFM Network
+        network_size = [muap_output_neurons, muap_waveform_samples]
+        # Firing Table for the Classified MUAPs
+        muap_firing_table = [[] for _ in range(muap_output_neurons)]
+
+        """
+        custom_muap_sofm_classification(muaps, muap_firing_time, muap_firing_table, muap_size=[8, 120], lvq2=False,
+                                        init_weight=0.0001, init_mid_weight_const=0.1, g=1, lvq_gaussian_hk=0.2,
+                                        epochs=1,
+                                        lvq_gaussian_thresh=0.005, learning_rate=1, neighborhood='gaussian',
+                                        verbose=True)
+        Returns: MUAP Waveforms(List[[]]), MUAP Class(List[]), Classification Output(Actual/Superimposed)(List[]),
+                 Firing Table(List[[]])                                
+        """
+
+        final_muap_waveforms, final_muap_classes, final_muap_outputs, muap_firing_table = mfunctions.custom_muap_sofm_classification(
+            waveforms, firing_time, muap_firing_table, muap_size=network_size, verbose=muap_seg_verbose
+        )
+        all_final_muap_waveforms.append(final_muap_waveforms)
+        all_final_muap_output_classes.append(final_muap_classes)
+        all_final_muap_superimposition_classes.append(final_muap_outputs)
+        all_final_muap_firing_tables.append(muap_firing_table)
+
+
+        if muap_seg_plot == 'debug' or muap_seg_plot == 'interactive':
+            colors = ['green', 'red', 'lightcoral', 'black', 'magenta', 'orange', 'dimgrey', 'lightseagreen']
+            plt.figure(muap_seg_plot_fig_num)
+            plt.clf()
+            plt.suptitle("MUAP Segmentation: Patient type-" + label_map[labels[i]].upper())
+            plt.subplot(2, 1, 1)
+            plt.title('Candidate MUAP Waveforms - Total: ' + str(len(waveforms)))
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-')
+            for j in range(len(waveforms)):
+                crop_start = peak_indices[j] - int(muap_waveform_samples/2)
+                crop_end = crop_start + int(muap_waveform_samples)
+                plt.plot(np.arange(crop_start, crop_end, 1), waveforms[j], 'r-')
+                plt.plot(peak_indices[j], filtered[peak_indices[j]], 'gx')
+
+            plt.subplot(2, 1, 2)
+            plt.title("MUAP Firing Table - Total Motor Units: " + str(muap_output_neurons))
+            plt.xlabel("Samples[n]")
+            plt.ylabel("Amplitude(uV)")
+            plt.grid()
+            plt.subplots_adjust(hspace=0.7)
+            plt.plot(np.arange(0, len(filtered), 1), filtered, 'b-')
+            for j in range(len(muap_firing_table)):
+                for k in range(len(muap_firing_table[j])):
+                    peak = muap_firing_table[j][k]
+                    crop_start = peak - int(muap_waveform_samples/2)
+                    crop_end = crop_start + int(muap_waveform_samples)
+                    plt.plot(np.arange(crop_start, crop_end, 1),
+                             filtered[np.arange(crop_start, crop_end, 1)], color=colors[j])
+                    plt.plot(peak, filtered[peak], marker='x', color=colors[j])
+
+            plt.figure(muap_seg_plot_fig_num+1)
+            plt.clf()
+            plt.suptitle("MUAP Classification: : Patient type-" + label_map[labels[i]].upper())
+            cols = 2
+            rows = int(math.ceil(muap_output_neurons/cols))
+            for j in range(muap_output_neurons):
+                plt.subplot(rows, cols, j+1)
+                plt.title("MU" + str(j+1) + ": Total: " + str(list(final_muap_classes).count(j)))
+                plt.xlabel("Samples[n]")
+                plt.ylabel("Amplitude(uV)")
+                plt.grid()
+                plt.subplots_adjust(hspace=0.9, wspace=0.3)
+                for k in range(len(final_muap_waveforms)):
+                    if final_muap_classes[k] == j and final_muap_outputs[k] == 0: # Actual Waveform display only
+                        plt.plot(final_muap_waveforms[k], color=colors[j])
+
+
+            if muap_seg_plot == 'interactive':
+                plt.pause(2)
+            else:
+                plt.show()

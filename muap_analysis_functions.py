@@ -1,5 +1,7 @@
 from scipy.signal import find_peaks
 import numpy as np
+import math
+
 import peakutils, pdb
 import matplotlib.pyplot as plt
 """
@@ -209,7 +211,291 @@ def calculate_turns(muaps, window_duration, min_peak_thresh=-1, trim_muap=False)
         turns.append(total_turns)
     return turns
 
+# Generate Potential MUAP Waveforms and their firing time from Signal
+def muap_an_get_segmentation_const_window(data, fs, window_ms=6, mav_coeff=30, peak_amp_increase_amount=40,
+                                          peak_amp_increase_duration=0.1, window_length=-1, verbose=True):
+    if window_length <= 0:
+        window_samples = int(math.ceil((fs*window_ms)/1000))  # Calculate Segmentation widnow samples
+    else:
+        window_samples = window_length
+    max_val = np.amax(data)  # Calculate Maximum Amplitude of the signal
+    mav = (mav_coeff/len(data)) * np.sum(np.abs(data))  # Calculate Mean Absolute Value(MAV) of the signal
+    signal_duration = math.ceil(len(data)/fs)  # Calculate duration of the signal in seconds to set threshold coefficient
+    if signal_duration <= 0:
+        signal_duration = 5 # Default coefficient for 5s EMG signal
 
+    # If the maximum value of the signal is greater than MAV
+    if max_val > mav:
+        thresh = (signal_duration/len(data)) * np.sum(np.abs(data))  # Set the peak detection min threshold as MAV
+    else:
+        thresh = max_val/signal_duration  # Set the peak detection min threshold as the maximum amplitude
+
+    # calculate the number of sample points in each segmented peak(Candidate MUAP) for which the amplitude increase
+    # of the candidate MUAP waveform must be greater than the specified threshold voltage
+    peak_amp_increase_length = math.ceil(fs/(1000*peak_amp_increase_duration))
+    if verbose:
+        print('Mean Amplitude value: ' + str(mav))
+        print('Max val: ' + str(max_val))
+
+    # Find peaks in the signal to obtain candidate MUAP waveform. Minimum distance between the peaks must be atleast
+    # one third of the segmentation window length
+    peaks = find_peaks(data, thresh, distance=int(window_samples/3))[0]
+    potential_muap = []  # Stores the candidate MUAP waveforms
+
+    # For each detected peak in the signal
+    for i in range(len(peaks)):
+        current_peak_index = peaks[i]  # Get the current Peak index
+
+        # if the peak satisfies the criterion of a valid MUAP
+        if current_peak_index - peak_amp_increase_length > 0 and data[current_peak_index]-data[current_peak_index-peak_amp_increase_length] > peak_amp_increase_amount:
+            if current_peak_index-int(window_samples/2) > 0 and current_peak_index+int(window_samples/2) < len(data):
+
+                # Extract the candidate MUAP waveform of the specified segmentation length and peak centered.
+                current_max_amp = data[current_peak_index]  # Set current maximum amplitude of the window equal to peak
+
+                # For each point in the window(Candidate MUAP waveform)
+                for j in range(current_peak_index-int(window_samples/2), current_peak_index+int(window_samples/2)):
+                    # If the point represents a peak and is greater than current maximum amplitude
+                    if j in peaks and data[j] > current_max_amp:
+                        current_max_amp = data[j]  # Set it's amplitude as current max peak amplitude in the window
+                        current_peak_index = j  # Set its index as the index of the peak of the window's candidate MUAP
+                # If the candidate MUAP waveform is not already in the list
+                if not (current_peak_index in potential_muap):
+                    # Add the index of peak of the waveform to the list of potential candidate MUAP waveforms
+                    potential_muap.append(current_peak_index)
+    muap_waveforms = []  # Stores the validated Candidate MUAP waveforms
+    muap_firing_times = []  # Stores firing time of the Candidate MUAP waveforms
+
+    # For each MUAP peak index in the list of potential Candidate MUAP waveforms
+    for i in range(len(potential_muap)):
+        # Add the waveform to the list of candidate MUAP waveform
+        muap_waveforms.append(np.asarray(
+            data[potential_muap[i]-int(window_samples/2):potential_muap[i]+int(window_samples/2)+1]
+        ))
+        # Add index/time of the peak as firing time of the MUAP waveform
+        muap_firing_times.append(potential_muap[i])
+    # Return the identified MUAP waveform peak indices, waveforms and their corresponding firing time
+    return potential_muap, muap_waveforms, muap_firing_times
+
+def custom_muap_sofm_classification(muaps, muap_firing_time, muap_firing_table, muap_size=[8, 120], lvq2=False,
+                                    init_weight=0.0001, init_mid_weight_const=0.1, g=1, lvq_gaussian_hk=0.2, epochs=1,
+                                    lvq_gaussian_thresh=0.005, learning_rate=1, neighborhood='gaussian', verbose=True):
+
+    #muaps = np.apply_along_axis(lambda x: x/np.linalg.norm(x), 1, muaps)
+
+    # Weight matrices for the SOFM network
+    weights = np.zeros((muap_size[0], muap_size[1]), dtype=np.float64)
+    weights += init_weight  # Initialize weights
+    weights[int(muap_size[0]/2)+1, :] = init_mid_weight_const * muaps[0]  # Modify weight of middle neuron for bias
+    if verbose:
+        print('Initiated Weight: ' + str(weights.shape))
+    node_winning_amount = [ 0 for _ in range(muap_size[0]) ]  # Number of times a neuron wins
+    epochs =1  # Training epochs
+
+    # --------------------------Learning Phase------------------------------------------
+    # For each epoch
+    for _ in range(epochs):
+        # For each candidate MUAP waveform
+        for i in range(len(muaps)):
+            if verbose:
+                print('....Current MUAP shape: ' + str(len(muaps[i])))
+                print('....Current Weight Shape: ' + str(len(weights[0])))
+            # Calculate distance between each output neuron's weight vector and input MUAP waveform
+            distance_k = [ np.sum(np.square(np.asarray(muaps[i])-weights[j])) for j in range(muap_size[0])]
+            winner_node = np.argmin(distance_k)  # Neuron with minimum distance from the waveform is selected as winner
+            node_winning_amount[winner_node] += 1  # Increase the number of times won for the neuron
+            if verbose:
+                print('....Min Distance for MUAP No. ' + str(i) + ': ' + str(distance_k[winner_node]))
+
+            # Weight adjustment for each output node - LEARNING PHASE 1
+
+            t = i+1  # No.of iteration: starts from 1 and decreases with number of classified MUAP waveforms
+
+            # For each output neuron
+            for k in range(len(weights)):
+                if verbose:
+                    print('........Adjusting weights for outputput node ' + str(k))
+
+                # If the neuron is winner node and it has won exactly one time or the first time
+                if (k == winner_node and node_winning_amount[k]==1):
+                    gaussian_hk = 1  # Set gaussian threshold to 1
+                # Else if the neuron has not won any time
+                elif node_winning_amount[k]== 0:
+                    gaussian_hk = 1  # Set Gaussian threshold to 1
+                # Else
+                else:
+                    # Set Gaussian theshold based on the number of times the output neuron has won and the current
+                    # winner node
+                    gaussian_hk = g * math.exp(-(k - winner_node) ** 2 * t / 2) / math.sqrt(node_winning_amount[k])
+                if verbose:
+                    print('........Gaussian Value: ' + str(gaussian_hk))
+                # If the gaussian threshold is below a limit
+                if gaussian_hk >= 0.005:
+                    if verbose:
+                        print('........Adapting Weights')
+                    # For each weight in weight vector of the output neuron
+                    for x in range(1, weights.shape[1]):
+                        # Adjust the weight
+                        weights[k][x] = weights[k][x-1] + gaussian_hk * (muaps[i][x] - weights[k][x-1])
+            if verbose:
+                print('-----------------------------------------------------------------\n')
+    node_winning_amount = [0 for _ in range(muap_size[0])]  # Reset the number of times each neuron won
+
+    # Learning Vector Quantization(LVQ) - LEARNING PHASE 2
+    if lvq2:
+        # For each epoch
+        for _ in range(epochs):
+            # For each candidate MUAP waveform
+            for i in range(len(muaps)):
+                if verbose:
+                    print('....Current MUAP shape: ' + str(len(muaps[i])))
+                    print('....Current Weight Shape: ' + str(len(weights[0])))
+                # Calculate distance between each output neuron's weight vector and the MUAP waveform
+                distance_k = [ np.sum(np.square(np.asarray(muaps[i])-weights[j])) for j in range(muap_size[0])]
+                # The node with minimum distance from the waveform is selected as winner
+                winner_node = np.argmin(distance_k)
+                # The node with second minimum distance is the second winner node
+                second_winner_node = np.argsort(distance_k)[1]
+                # Increase the number of times the nodes won
+                node_winning_amount[winner_node] += 1
+                node_winning_amount[second_winner_node] += 1
+                if verbose:
+                    print('....Min Distance for MUAP No. ' + str(i) + ': ' + str(distance_k[winner_node]))
+
+                # Weight adjustment for each output node - LEARNING PHASE 1
+                g = 1  # 0 < g < 1
+                t = i+1  # No.of iteration: starts from 1
+                if verbose:
+                    print('........Adjusting weights for outputput node ' + str(k))
+                    print('........Gaussian Value: ' + str(lvq_gaussian_hk))
+
+                # If the LVQ2 constant is greater than or equals to the LVQ Gaussian threshold
+                if lvq_gaussian_hk >= lvq_gaussian_thresh:
+                    # For each weight in weight vector of the winner and second winner node
+                    for x in range(1, weights.shape[1]):
+                        # Adjust weight of the inner node
+                        weights[winner_node][x] = weights[winner_node][x - 1] + lvq_gaussian_hk * (muaps[i][x] - weights[winner_node][x - 1])
+                        # Adjust weight of the second winner node
+                        weights[second_winner_node][x] = weights[second_winner_node][x - 1] \
+                                                         - 0.1 * (distance_k[winner_node]/distance_k[second_winner_node]) \
+                                                         * lvq_gaussian_hk * (muaps[i][x] - weights[second_winner_node][x - 1])
+                # Adjust LVQ2 Threshold for adaptive learning
+                lvq_gaussian_hk = 0.2 - 0.01 * node_winning_amount[winner_node]
+
+                # If the LVQ2 Gaussina constant is less than 0
+                if lvq_gaussian_hk <0:
+                    lvq_gaussian_hk = 0  # Reset the learning constant to 0
+
+
+    # Classification of actual MUAP and superimposed MUAP
+    muap_classification_output = [-1 for _ in range(len(muaps))]  # 0 for actual muap and 1 for superimposed muap
+    muap_classification_class = [-1 for _ in range(len(muaps))]  # Classification class for MUAP
+
+    # For each candidate MUAP waveform
+    for i in range(len(muaps)):
+        # Calculate the distance between weight vector of each neuron and the MUAP waveform
+        distance_k = [np.sum(np.square(np.asarray(muaps[i]) - weights[j])) for j in range(muap_size[0])]
+        # Calculate the winner node based on minimum distance
+        winner_node = np.argmin(distance_k)
+        # Classify the MUAP waveform as belonging to the class of the winner neuron or motor unit
+        muap_classification_class[i] = winner_node
+        # Update MUAP firing table
+        muap_firing_table[winner_node].append(muap_firing_time[i])
+
+        length_kw = np.sum(weights[winner_node]**2)
+        if verbose:
+            print('Classification Threshold for MUAP No. ' + str(i+1) + ': ' + str(distance_k[winner_node]/length_kw))
+
+        # If the dissimilarity between winner node and muap waveform is less than 0.2
+        if distance_k[winner_node]/length_kw < 0.2:
+            muap_classification_output[i] = 0  # Assign the MUAP waveform to the class of winner node
+        else:
+            muap_classification_output[i] = 1  # Assign the MUAP waveform as superimposed waveform
+    if verbose:
+        print('Detected Actual MUAP: ' + str(len(muap_classification_output) - np.count_nonzero(muap_classification_output)))
+        print('Superimposed MUAP: ' + str(np.count_nonzero(muap_classification_output)))
+
+    # Averaging of MUAP classes containing more than 'n' numbers of members
+    if verbose:
+        print('INITIAL FIRING TABLE: TOTAL MUAPS: ' + str(len(muaps)))
+    # Total current firing in each output neuron/node
+    ft = [len(muap_firing_table[i]) for i in range(len(muap_firing_table))]
+    if verbose:
+        print(ft)
+        print('Total Firings: ' + str(np.sum(ft)))
+    # Total Actual(0) and Superimposed(1) waveforms in current output node/neuron
+    occurences = {i: {0: 0, 1: 0} for i in range(muap_size[0])}
+    final_muap_classes = []  # Final Output Node/Neuron Class for each MUAP waveform
+    final_muap_outputs = []  # Final Output Type(Actual/Superimposed) Class for each MUAP waveform
+    final_muap_waveforms = [] # Final Output MUAP waveforms
+    # Stores whether each final waveform is averaged result from a MUAP class
+    avgd_muap = [False for _ in range(len(muaps))]
+    # For each current MUAP waveform
+    for i in range(len(muaps)):
+        # Update the number of firing/occurence of its consecutive output node
+        occurences[muap_classification_class[i]][muap_classification_output[i]] += 1
+
+    # For occurences of each output node
+    for c in occurences:
+        # If the output node contains more than 3 waveforms
+        if occurences[c][0] > 3:
+            # Average the waveforms and merge their firing times creating a new waveform
+            avg = np.asarray([0 for _ in range(muap_size[1])])  # Averaged Waveform
+            avgd_index = []  # Indices of current waveform that are averaged
+            firing_time = []  # New merged firing time of the averaged waveform
+            # For each current MUAP waveform
+            for i in range(len(muaps)):
+                # If the waveform belongs to the node whose waveforms are to be averaged and if it is an actual waveform
+                if muap_classification_class[i] == c and muap_classification_output == 0:
+                    avgd_muap[i] = True  # Set the current MUAP waveform as a member of averaged waveform
+                    avgd_index.append(i)  # Add the waveform index which is added to the averaged waveform list for the node
+                    avg += np.asarray(muaps[i])  # Add the amplitude of the waveform to the averaged waveform
+                    firing_time.append(muap_firing_time[i])  # Add firing time of the waveform to the averaged waveform
+            avg = avg / occurences[c][0]  # Average the summed waveform
+            # Check whether the new averaged waveform belongs to a neuron class and update the class accordingly
+            # else add it to the list of superimposed waveforms
+
+            # Distance of each node's weight vector from the new averaged waveform
+            distance_k = [np.sum(np.square(avg - weights[j])) for j in range(muap_size[0])]
+            # Node/Neuron with minimum distance is the winner
+            winner_node = np.argmin(distance_k)
+            # Calculate the dissimilarity between the winner node and new averaged waveform
+            length_kw = np.sum(weights[winner_node] ** 2)
+            # If the dissimilarity is less than 0.2
+            if distance_k[winner_node] / length_kw < 0.2:
+                # Add the new averaged waveform to the list of final MUAP waveforms
+                final_muap_waveforms.append(avg)
+                # Add the class to the list of final classes of MUAP waveforms
+                final_muap_classes.append(winner_node)
+                # Add the waveform type(Actual) to the list of final output of MUAP waveforms
+                final_muap_outputs.append(0)
+                # For each current firing time of the new averaged waveform
+                for x in range(len(firing_time)):
+                    # Remove the firing time from the firing table of original output node
+                    muap_firing_table[c].remove(firing_time[x])
+                    # Add the firing time to the firing table of new output node
+                    muap_firing_table[winner_node].append(firing_time[x])
+            else:
+                # For each current MUAP waveform that was averaged
+                for index in avgd_index:
+                    # Reset the averaged status of the current MUAP waveform
+                    avgd_muap[index] = False
+                    # Add the waveform as superimposed waveform
+                    muap_classification_output[index] = 1
+    # For each current MUAP waveform that was not averaged
+    for i in range(len(muaps)):
+        if not avgd_muap[i]:
+            # Add it to the list of final MUAP waveforms
+            final_muap_waveforms.append(muaps[i])
+            # Add its class to the list of class of final MUAP waveforms
+            final_muap_classes.append(muap_classification_class[i])
+            # Add its output(Actual/Superimposed) to the list of output of final MUAP waveforms
+            final_muap_outputs.append(muap_classification_output[i])
+
+    if verbose:
+        print('UPDATED FIRING TABLE: TOTAL MUAPS: ' + str(len(muaps)))
+        print([len(muap_firing_table[i]) for i in range(len(muap_firing_table))])
+    return final_muap_waveforms, final_muap_classes, final_muap_outputs, muap_firing_table
 
 
 dir = "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\train\\als\\a01_patient\\N2001A01BB02\\"
