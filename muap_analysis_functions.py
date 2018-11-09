@@ -26,27 +26,61 @@ def calculate_amplitude_difference(muaps, min_peak_thresh=-1):
     :param muaps: The MUAP Waveforms in a list whose amplitude difference needs to be calculated - list[]
     :return: A list containing the amplitude difference for each MUAP waveform
 
-    Amplitude Difference: Amplitude difference between maximum negative and minimum positive peaks- list[]
+    Amplitude Difference: Amplitude difference between maximum positive and minimum negative peaks- list[]
     """
     amp_difference = []
+    amp_peak_indices = []
     for i in range(len(muaps)):
         muap = np.asarray(muaps[i])
         peak_thresh = min_peak_thresh
         if peak_thresh < 0:
-            peak_thresh = np.mean(np.abs(muap))
-        peaks, properties = find_peaks(muap, peak_thresh)
-        inverse_peaks, inverse_properties = find_peaks(muap*-1, peak_thresh)
+            peak_thresh = np.mean(muap[muap > 0])
+        peaks, properties = find_peaks(muap, height=peak_thresh)
+        peak_thresh = min_peak_thresh
+
+        if peak_thresh < 0:
+            peak_thresh = np.mean((muap*-1)[muap*(-1) > 0])
+        inverse_peaks, inverse_properties = find_peaks(muap*-1, height=peak_thresh)
         if len(peaks) > 0 and len(inverse_peaks) > 0:
-            amp_diff = np.amax(muap[inverse_peaks]) - np.amin(muap[peaks])
+            amp_diff = np.abs(np.amin(muap[inverse_peaks]) -np.amax(muap[peaks]))
+            pos_peak_val = -sys.maxsize
+            pos_peak = -1
+            for j in range(len(peaks)):
+                if muap[peaks[j]] > pos_peak_val:
+                    pos_peak_val = muap[peaks[j]]
+                    pos_peak = peaks[j]
+
+            neg_peak_val = sys.maxsize
+            neg_peak = -1
+            for j in range(len(inverse_peaks)):
+                if muap[inverse_peaks[j]] < neg_peak_val:
+                    neg_peak_val = muap[inverse_peaks[j]]
+                    neg_peak = inverse_peaks[j]
         elif len(peaks) == 0 and len(inverse_peaks) > 0:
-            amp_diff = np.amax(muap[inverse_peaks]) - 0
+            amp_diff = np.abs(np.amin(muap[inverse_peaks]))
+            pos_peak = 0
+            neg_peak_val = sys.maxsize
+            neg_peak = -1
+            for j in range(len(inverse_peaks)):
+                if muap[inverse_peaks[j]] < neg_peak_val:
+                    neg_peak_val = muap[inverse_peaks[j]]
+                    neg_peak = inverse_peaks[j]
         elif len(peaks) > 0 and len(inverse_peaks) == 0:
-            amp_diff = 0 - np.amin(muap[peaks])
+            amp_diff = np.amax(muap[peaks])
+            pos_peak_val = -sys.maxsize
+            pos_peak = -1
+            for j in range(len(peaks)):
+                if muap[peaks[j]] > pos_peak_val:
+                    pos_peak_val = muap[peaks[j]]
+                    pos_peak = peaks[j]
+            neg_peak = 0
         else:
             amp_diff = muap[int(len(muap)/2)]
-
+            pos_peak = int(len(muap)/2)
+            neg_peak = 0
+        amp_peak_indices.append([pos_peak, neg_peak])
         amp_difference.append(amp_diff)
-    return amp_difference
+    return amp_difference, amp_peak_indices
 def calculate_waveform_duration(muaps, window_duration):
     """
 
@@ -61,8 +95,8 @@ def calculate_waveform_duration(muaps, window_duration):
     close to which the MUAP beginning and ending points are expected to be found.
     The duration(ms) of the MUAP is the time interval between MUAP beginning and ending points.
     """
-    min_amp_amount = 1/15
-    amp_difference = calculate_amplitude_difference(muaps)
+    min_amp_amount = 1/5
+    amp_difference, _ = calculate_amplitude_difference(muaps)
     thresh_min_allowed_voltage = 10
     thresh_max_allowed_voltage = 20
     waveform_duration = []
@@ -71,22 +105,58 @@ def calculate_waveform_duration(muaps, window_duration):
         muap = np.asarray(muaps[i])
         amplitude = amp_difference[i]
         bep_index = -1
-        eep_index = -1
-        for j in range(len(muap)):
-            if muap[j] > min_amp_amount * amplitude and thresh_min_allowed_voltage < muap[j] < thresh_max_allowed_voltage:
+        eep_index = len(muap)+1
+        thresh = min_amp_amount * amplitude
+        for j in range(int(len(muap)/2)):
+            if muap[j] > thresh:
                 bep_index = j
                 break
-        for j in range(len(muap)-1, -1, -1):
-            if muap[j] > min_amp_amount * amplitude and thresh_min_allowed_voltage < muap[j] < thresh_max_allowed_voltage:
+        for j in range(len(muap)-1, int(len(muap)/2), -1):
+            if muap[j] > thresh:
                 eep_index = j
                 break
         if bep_index >= 0 and eep_index < len(muap) and bep_index != eep_index:
-            duration = window_duration*(eep_index - bep_index)/len(muap)
+            # The point closest to the baseline starting from the bep_index for 1ms window is the beginning point
+            # and the point closest to the baseline starting from eep_index for 1ms window is the ending point
+
+            window_sample_length = int(len(muap)*1/window_duration)
+            begin_point = bep_index
+            begin_diff = np.abs(np.abs(muap[begin_point])-thresh_max_allowed_voltage)
+
+
+            for j in range(bep_index, 0, -window_sample_length):
+                if j - window_sample_length >= 0:
+                    window_start = j - window_sample_length
+                else:
+                    break
+                current_min_index = np.argmin(np.abs(np.abs(muap[window_start:j+1])-thresh_max_allowed_voltage)) + window_start
+                if np.abs(np.abs(muap[current_min_index])-thresh_max_allowed_voltage) < begin_diff:
+                    begin_diff = np.abs(np.abs(muap[current_min_index])-thresh_max_allowed_voltage)
+                    begin_point = current_min_index
+
+            end_point = eep_index
+            end_diff = np.abs(np.abs(muap[end_point])-thresh_max_allowed_voltage)
+
+            for j in range(eep_index, len(muap)-1, window_sample_length):
+                if j + window_sample_length <= len(muap):
+                    window_end = j + window_sample_length
+                    print("Current MUAP Length: " + str(len(muap)) + ", win_start: " + str(j)
+                          + ", win_end: " + str(window_end))
+                    current_min_index = np.argmin(
+                        np.abs(np.abs(muap[j:window_end]) - thresh_max_allowed_voltage)) + j
+
+                    if np.abs(np.abs(muap[current_min_index]) - thresh_max_allowed_voltage) < end_diff:
+                        end_diff = np.abs(np.abs(muap[current_min_index]) - thresh_max_allowed_voltage)
+                        end_point = current_min_index
+                else:
+                    break
+
+            duration = window_duration*(end_point - begin_point)/len(muap)
         else:
             duration = window_duration
-            bep_index = 0
-            eep_index = len(muap)-1
-        waveform_endpoints.append([bep_index, eep_index])
+            begin_point = 0
+            end_point = len(muap)-1
+        waveform_endpoints.append([begin_point, end_point])
         waveform_duration.append(duration)
 
     return waveform_duration, waveform_endpoints
@@ -123,18 +193,18 @@ def calculate_rise_time(muaps, window_duration, min_peak_thresh=-1):
             neg_peak_thresh = np.mean(muap*-1)
             peak_thresh = np.mean(muap)
 
-        neg_peaks, _ = find_peaks(muap*-1, neg_peak_thresh)
+        neg_peaks, _ = find_peaks(muap*-1, height=neg_peak_thresh)
         min_pos_peak = len(muap)-1
         max_neg_peak = 0
         if len(neg_peaks) > 0:
             max_neg_peak = np.argmax(muap[neg_peaks])
 
-        pos_peaks, _ = find_peaks(muap[:max_neg_peak], peak_thresh)
+        pos_peaks, _ = find_peaks(muap[:max_neg_peak], height=peak_thresh)
 
         if len(pos_peaks) > 0 and np.argmin(muap[pos_peaks]) != max_neg_peak:
             min_pos_peak = np.argmin(muap[pos_peaks])
         elif len(pos_peaks) > 0 and np.argmin(muap[pos_peaks]) == max_neg_peak:
-            pos_peaks, _ = find_peaks(muap[max_neg_peak:], peak_thresh)
+            pos_peaks, _ = find_peaks(muap[max_neg_peak:], height=peak_thresh)
             if len(pos_peaks) > 0:
                 min_pos_peak = np.argmin(muap[pos_peaks])
         rise = window_duration*abs(max_neg_peak - min_pos_peak) / len(muaps[i])
@@ -154,18 +224,22 @@ def calculate_phase(muaps, window_duration):
     _, bep_eep = calculate_waveform_duration(muaps, window_duration)
     for i in range(len(muaps)):
         muap = np.asarray(muaps[i])[bep_eep[i][0]:bep_eep[i][1]]
-        baseline = [0] * len(muap)
-        last_crossed_above = False
         total_crossings = 0
-        for j in range(len(muap)):
-            if last_crossed_above:
-                if muap[j] < baseline[j] and muap[j] < - amp_thresh:
-                    total_crossings += 1
-                    last_crossed_above = False
+        for j in range(1, len(muap)):
+            if muap[j-1] > amp_thresh:
+                region_prev = 1
+            elif muap[j-1] < -amp_thresh:
+                region_prev = -1
             else:
-                if muap[j] > baseline[j] and muap[j] >  amp_thresh:
-                    total_crossings += 1
-                    last_crossed_above = True
+                region_prev = 0
+            if muap[j] > amp_thresh:
+                region_cur = 1
+            elif muap[j] < -amp_thresh:
+                region_cur = -1
+            else:
+                region_cur = 0
+            if (region_cur == 1 and (region_prev == 0 or region_prev == -1)) or (region_cur == -1 and (region_prev == 0 or region_prev == 1)):
+                total_crossings += 1
         phases.append(total_crossings)
 
     return phases
@@ -189,26 +263,21 @@ def calculate_turns(muaps, window_duration, min_peak_thresh=-1, trim_muap=False)
             muap = np.asarray(muaps[i])
         peak_thresh = min_peak_thresh
         if peak_thresh < 0:
-            peak_thresh = np.mean(muap)
-        pos_peak, _ = find_peaks(muap, peak_thresh)
+            peak_thresh = np.mean(np.abs(muap))
+        pos_peak, _ = find_peaks(muap, height=peak_thresh)
 
         if peak_thresh < 0:
-            peak_thresh = np.mean(muap*-1)
-        neg_peaks, _ = find_peaks(muap*-1, peak_thresh)
+            peak_thresh = np.mean(np.abs(muap))
+        neg_peaks, _ = find_peaks(muap*-1, height=peak_thresh)
 
         total_peaks = list(pos_peak) + list(neg_peaks)
-        debug_output(total_peaks)
-        debug_output(pos_peak)
-        debug_output(neg_peaks)
-        peak_signs = [1]*len(pos_peak) + [-1]* len(neg_peaks)
-        sorted_index = np.argsort(total_peaks)
-        total_peaks = np.asarray(total_peaks)[sorted_index]
-        peak_signs = np.asarray(peak_signs)[sorted_index]
-        total_turns = 0
-        for j in range(len(total_peaks)-1):
-            if peak_signs[j] != peak_signs[j+1] and abs(muap[total_peaks[j]] - muap[total_peaks[j+1]]) >= diff_thresh:
-                total_turns += 1
-        turns.append(total_turns)
+        t = 0
+        total_peaks = np.sort(total_peaks)
+        for j in range(1, len(total_peaks)):
+            if abs(total_peaks[j] - total_peaks[j-1]) > diff_thresh:
+                t += 1
+
+        turns.append(t)
     return turns
 
 # Generate Potential MUAP Waveforms and their firing time from Signal
