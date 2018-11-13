@@ -136,6 +136,7 @@ def default_feature_extraction(data_filtered, labels, label_map, sampling_rates,
     mu_average_signals = []
     mu_baseline_corrected_signals = []
     extracted_features = []
+    feature_labels = []
     if plot_mode == 'interactive':
         plt.ion()
         plt.show()
@@ -157,6 +158,7 @@ def default_feature_extraction(data_filtered, labels, label_map, sampling_rates,
         muap_average_signal = []
         muap_baseline_corrected_signal = []
         muap_extracted_feature = []
+
 
         # Expand the MUAP waveform duration for averaging and extracting features
         expanded_signals = expand_muap_waveform(filtered, fs, muaps, muap_firing_index, expand_duration, verbose=verbose)
@@ -232,6 +234,9 @@ def default_feature_extraction(data_filtered, labels, label_map, sampling_rates,
                     phases = phases[0]
 
                     rise_time = (1000 * abs(amplitude_peaks[0]-amplitude_peaks[1]))/fs
+                    muap_extracted_feature.append([amplitude, duration, area, turns, phases])
+
+
                 else:
                     amplitude = -sys.maxsize
                     amplitude_peaks = [-1, -1]
@@ -241,7 +246,7 @@ def default_feature_extraction(data_filtered, labels, label_map, sampling_rates,
                     turns = -sys.maxsize
                     phases = -sys.maxsize
                     rise_time = -sys.maxsize
-
+                    muap_extracted_feature.append([0, 0, 0, 0, 0])
                 if verbose:
                     print("Average class shape: " + str(len(avg_class)))
                 if plot_fig_num > 0:
@@ -301,7 +306,20 @@ def default_feature_extraction(data_filtered, labels, label_map, sampling_rates,
         mu_expanded_signals.append(muap_expanded_signal)
         mu_average_signals.append(muap_average_signal)
         mu_baseline_corrected_signals.append(muap_baseline_corrected_signal)
-        extracted_features.append(muap_extracted_feature)
+        if len(muap_extracted_feature) == 8:
+            validated = True
+            for s in range(8):
+                if len(muap_extracted_feature[s]) != 5:
+                    print('Unequal number of features for MUAP No. ' + str(s) + '. Expected 5, Found ' + str(len(muap_extracted_feature[s])))
+                    validated = False
+                    break
+            if validated:
+                extracted_features.append(muap_extracted_feature)
+                feature_labels.append(labels[i])
+            else:
+                print('Feature Incomplete')
+        else:
+            print('MUAP Classes incomplete for dataset. Expected 8, Found ' + str(len(muap_extracted_feature)))
 
 
-    return extracted_features
+    return extracted_features, feature_labels
