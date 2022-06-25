@@ -52,94 +52,16 @@ Detection of sentences from a file
 Nul(0) - US(31) except NewLine(10), 127 
 
 """
-# Load sample data
-"""plot_signal = False
-scale_signal = True
-max_ascii = 127
-labeled_data_dir = "D:\\text_database\\SentenceCorpus\\labeled_articles\\"
-unlabeled_data_dir = "D:\\text_database\\SentenceCorpus\\unlabeled_articles\\"
-header_data_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
-header_sample_data = load_sample_texts(header_data_dir, [], ext="hea")
-sample_sentence_labeled = load_sample_texts(labeled_data_dir, [], ext='txt')
-sample_sentence_unlabeled = load_sample_texts(unlabeled_data_dir, [], ext='txt')
-sample_data = header_sample_data + sample_sentence_labeled + sample_sentence_unlabeled
-shuffle = True
-if shuffle:
-    random.shuffle(sample_data)
-print('Total data found: ' + str(len(sample_data)))
-print("First sample url: " + sample_data[0])
-
-# Convert each data to string
-corrected_sample_urls = []
-string_data = []
-for i in range((len(sample_data))):
-    with open(sample_data[i], 'r') as f:
-        try:
-            data = f.read()
-            if len(data) > 0:
-                string_data.append(data)
-                corrected_sample_urls.append(sample_data[i])
-        except:
-            print('Could not read data from ' + str(sample_data[i]))
-
-print('Total String data: ' + str(len(string_data)))
-print("First sample string: " + string_data[0])
-
-# Segment Input data
-segmented_data = []
-text_segmentation_and_labeling(string_data, 10, segment_size=20)
-
-# Convert String to Signal
-signal_data = []
-for i in range(len(string_data)):
-    text = string_data[i]
-    signal = [ord(text[j]) for j in range(len(text))]
-    signal_data.append(signal)
-
-print("Total Signal data: " + str(len(signal_data)))
-print("First sample signal length: " + str(len(signal_data[0])))
-
-
-# Trim unnecessary characters
-trimmed_data = []
-for i in range(len(signal_data)):
-    signal = signal_data[i]
-    trimmed_signal = []
-    for j in range(len(signal)):
-        if 31 < signal[j] < 127 or signal[j] == 10:
-            if scale_signal:
-                trimmed_signal.append(signal[j]/max_ascii)
-            else:
-                trimmed_signal.append(signal[j])
-    trimmed_data.append(trimmed_signal)
-print("Total Trimmed data: " + str(len(trimmed_data)))
-print('First trimmed data length: ' + str(len(trimmed_data[0])))
-
-
-if plot_signal:
-    plt.ion()
-    plt.show()
-    for i in range(len(trimmed_data)):
-        plt.clf()
-        plt.subplot(2, 1, 1)
-        plt.title("Raw: " + str(corrected_sample_urls[i]))
-        plt.plot(signal_data[i])
-        plt.grid(True)
-        plt.subplot(2, 1, 2)
-        plt.title("Trimmed")
-        plt.plot(trimmed_data[i])
-        plt.grid(True)
-        plt.pause(2)"""
 
 
 # Temporary: Detection of individual basic waveforms in a signal
 from scipy.signal import find_peaks
-from MyNet.emg_classification_library.signal_analysis_functions import butter_bandpass_filter
-from MyNet.emg_classification_library.dataset_functions import get_dataset
+from signal_analysis_functions import butter_bandpass_filter
+from dataset_functions import get_dataset
 
 # butter_bandpass_filter(data, cutoff_freqs, btype, fs, order=5)
 
-root = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+root = 'dataset\\'
 base = root + 'train\\als\\a01_patient\\N2001A01BB02\\'
 urls, labels, label_map = get_dataset(root, shuffle=True)
 

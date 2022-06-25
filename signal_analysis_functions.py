@@ -2,7 +2,6 @@ import numpy as np
 from python_speech_features import mfcc
 from scipy.ndimage.morphology import generate_binary_structure, binary_erosion
 from scipy.ndimage.filters import maximum_filter
-from skimage.feature import peak_local_max
 from scipy.signal import spectrogram, find_peaks, butter, lfilter
 import pywt
 import matplotlib.pyplot as plt
@@ -314,4 +313,4 @@ def calculate_zero_lag_autocorrelation(data):
     autocorr_xdm = np.correlate(xdm, xdm, mode='full')
     return autocorr_xdm[int(len(data)/2) - 1]
 
-dir = "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\train\\als\\a01_patient\\N2001A01BB02\\"
+dir = "dataset\\train\\als\\a01_patient\\N2001A01BB02\\"

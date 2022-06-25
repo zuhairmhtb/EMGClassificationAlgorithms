@@ -6,11 +6,11 @@ from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize, LabelBinarizer
 from sklearn.model_selection import train_test_split
 
-import MyNet.emg_classification_library.dataset_functions as dfunctions
-import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
-import MyNet.emg_classification_library.muap_analysis_functions as mfunctions
-import MyNet.emg_classification_library.feature_extraction_functions as ffunctions
-import MyNet.emg_classification_library.classifier_functions as cfunctions
+import dataset_functions as dfunctions
+import signal_analysis_functions as sfunctions
+import muap_analysis_functions as mfunctions
+import feature_extraction_functions as ffunctions
+import classifier_functions as cfunctions
 
 if __name__ == "__main__":
     # ------------------------------PREDEFINED PARAMETERS-----------------------------------------------
@@ -51,10 +51,10 @@ if __name__ == "__main__":
     elif signal_type == "simulated":
         data_size = [40, 50, 60, 70, 80, 90]
     if signal_type == "real":
-        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+        data_base_dir = 'dataset\\'
     elif signal_type == "simulated":
-        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
-    result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\emg_decomposition_classification_output\\'
+        data_base_dir = 'simulated_dataset\\'
+    result_base_dir = 'emg_decomposition_classification_output\\'
 
     print("LOADING DATA SET")
     raw_urls, raw_labels, label_map = dfunctions.get_dataset(data_base_dir, shuffle=True)

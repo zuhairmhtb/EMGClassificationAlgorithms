@@ -69,3 +69,14 @@ Performance Evaluation:
     3. Average Performance Table for varying input size and each Feature Extraction Technique
     4. Feature Output Curves and Tables
     5. Signal preprocessing Curves.
+
+Software specifications:
+
+1. Python version: 3.5.2
+
+2. OS: Windows
+
+3. Install python packages using: pip install -r requirements.txt
+
+4. Run python script: python emg_decomposition_classification.py
+

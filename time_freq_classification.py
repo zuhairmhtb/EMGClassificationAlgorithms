@@ -8,11 +8,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from prettytable import PrettyTable, from_csv, from_html_one
-from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
+from particle_swarm_optimization import Particle, PSO
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize, LabelBinarizer
-import MyNet.emg_classification_library.dataset_functions as dfunctions
-import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
+import dataset_functions as dfunctions
+import signal_analysis_functions as sfunctions
 
 
 
@@ -85,10 +85,10 @@ if __name__ == "__main__":
     elif signal_type == "simulated":
         data_size = [40, 50, 60, 70, 80, 90]
     if signal_type == "real":
-        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\'
+        data_base_dir = 'dataset\\'
     elif signal_type == "simulated":
-        data_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\'
-    result_base_dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\'
+        data_base_dir = 'simulated_dataset\\'
+    result_base_dir = 'time_freq_classification_output\\'
 
 
     print("LOADING DATA SET")

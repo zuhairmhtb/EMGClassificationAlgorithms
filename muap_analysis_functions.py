@@ -800,11 +800,11 @@ def perform_emg_decomposition(waveforms, waveform_classes, waveform_superimposit
         print('Actual MUAPS: ' + str(len(actual_muaps)))
         print('Superimposed MUAPS: ' + str(len(superimposed_muaps)))
     return actual_muaps, residue_superimposed_muaps
-dir = "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\train\\als\\a01_patient\\N2001A01BB02\\"
+dir = "dataset\\train\\als\\a01_patient\\N2001A01BB02\\"
 a = np.load(dir+"muap_waveforms.npy")
 b = np.load(dir+"muap_output_classes.npy")
 c = np.load(dir+"muap_superimposition_classes.npy")
-d = np.load(dir+"muap_firing_time.npy")
+d = np.load(dir+"muap_firing_time.npy", allow_pickle=True)
 a = np.asarray(a)
 c = np.asarray(c)
 muap = a[c==0]

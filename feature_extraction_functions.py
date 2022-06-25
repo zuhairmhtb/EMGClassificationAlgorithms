@@ -1,4 +1,4 @@
-import os, random, pywt, sys, pdb, datetime, collections, math
+import os, random, sys, pdb, datetime, collections, math
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter, spectrogram, find_peaks
@@ -8,13 +8,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from prettytable import PrettyTable, from_csv, from_html_one
-from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
+from particle_swarm_optimization import Particle, PSO
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize, LabelBinarizer
 
-import MyNet.emg_classification_library.dataset_functions as dfunctions
-import MyNet.emg_classification_library.signal_analysis_functions as sfunctions
-import MyNet.emg_classification_library.muap_analysis_functions as mfunctions
+import dataset_functions as dfunctions
+import signal_analysis_functions as sfunctions
+import muap_analysis_functions as mfunctions
 
 # Expands a MUAP waveform from the Signal Waveform
 def expand_muap_waveform(data, fs, muaps, muap_firing_index, expand_duration, verbose=True):

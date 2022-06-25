@@ -4,7 +4,7 @@ from sklearn import preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-from MyNet.emg_classification_library.particle_swarm_optimization import Particle, PSO
+from particle_swarm_optimization import Particle, PSO
 # Optimization Function for KNearest Neighbor Classifier
 def knn_optimize(x, args):
     classifier = KNeighborsClassifier(n_neighbors=int(x[0]))

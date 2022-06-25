@@ -3,15 +3,15 @@
   {
     "base_dir": {
       "real": {
-        "value": "D:\\thesis\\ConvNet\\MyNet\\temp\\dataset\\"
+        "value": "dataset\\"
       },
       "simulated": {
-        "value": "D:\\thesis\\ConvNet\\MyNet\\temp\\simulated_dataset\\"
+        "value": "simulated_dataset\\"
       }
 
     },
     "result_dir": {
-      "value": "D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\"
+      "value": "time_freq_classification_output\\"
     },
     "test_dir": {
       "value": "test"

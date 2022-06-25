@@ -46,7 +46,7 @@ def html_to_latex_table(html_string, table_caption):
     return latex_result
 
 
-dir = 'D:\\thesis\\ConvNet\\MyNet\\emg_classification_library\\time_freq_classification_output\\average_performance_graph.html'
+dir = 'time_freq_classification_output\\average_performance_graph.html'
 with open(dir, 'r') as fp:
     html_string = fp.read()
     latex_result = html_to_latex_table(html_string, "Spectral Peak Amplitude and Frequency from Fast Fourier Transform")
